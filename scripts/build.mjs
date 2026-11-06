@@ -35,8 +35,7 @@ const CODE = /\(([A-Z]{1,4}\d{0,2}-\d{2,3})\)/;
  * expansion of its set (the expansion whose cards mostly carry that set's prefix, told apart by the "(Non-English)"
  * boxes in it) and list the versions in Cardmarket's product order: normal, then parallels.
  */
-export function buildOnePiece(singles, nonsingles, guide) {
-  const price = new Map(guide.map((g) => [g.idProduct, g]));
+export function indexOnePiece(singles, nonsingles) {
   const boxNames = new Map();
   for (const p of nonsingles) boxNames.set(p.idExpansion, [...(boxNames.get(p.idExpansion) ?? []), p.name]);
   const kindOf = (exp) => {
@@ -69,6 +68,12 @@ export function buildOnePiece(singles, nonsingles, guide) {
       if (!cur || n > cur.n) main.set(key, { exp, n });
     }
   }
+  return { byExp, main, kindOf };
+}
+
+export function buildOnePiece(singles, nonsingles, guide, index = indexOnePiece(singles, nonsingles)) {
+  const price = new Map(guide.map((g) => [g.idProduct, g]));
+  const { byExp, main, kindOf } = index;
   const cards = {};
   const add = (code, lang, ids) => {
     const rows = ids.sort((a, b) => a - b).map((id) => [id, ...priceRow(price.get(id))]);
@@ -87,6 +92,112 @@ export function buildOnePiece(singles, nonsingles, guide) {
   }
   for (const [code, ids] of promos) add(code, 'en', ids);
   return cards;
+}
+
+/* ------------------------------------------------------------------ reprints (PRB, Extra Boosters, special cards, decks) */
+
+/** The card-code prefixes of an OPTCG set: "OP-05" → OP05, "PRB-01" → PRB01, "OP14-EB04" → OP14 and EB04. */
+export function setPrefixes(setId) {
+  return /^[A-Z]+-\d+$/.test(setId) ? [setId.replace('-', '')] : setId.split('-');
+}
+
+const versionOf = (imageId) => { const m = /_p(\d+)$/i.exec(imageId); return m ? Number(m[1]) : 0; };
+function compareNumbers(a, b) {
+  const na = parseInt(a, 10), nb = parseInt(b, 10);
+  const ia = isNaN(na), ib = isNaN(nb);
+  if (ia !== ib) return ia ? 1 : -1;
+  if (!ia && na !== nb) return na - nb;
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+function versionSlug(name) {
+  const labels = [...name.matchAll(/\(([^)]+)\)/g)].map((m) => m[1]).filter((l) => !/^\d+$/.test(l));
+  return labels.join(' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/** The ids the app gives the cards of a set (same order and rules as its sortCards and refsFromOP). */
+export function appIds(cards) {
+  const sorted = [...cards].sort((a, b) => compareNumbers(a.card_set_id.split('-').pop() ?? '', b.card_set_id.split('-').pop() ?? '')
+    || a.card_set_id.localeCompare(b.card_set_id) || versionOf(a.card_image_id) - versionOf(b.card_image_id));
+  const count = new Map();
+  sorted.forEach((c) => count.set(c.card_image_id, (count.get(c.card_image_id) ?? 0) + 1));
+  const used = new Set();
+  return sorted.map((c, i) => {
+    let id = c.card_image_id;
+    if ((count.get(id) ?? 0) > 1) id = `${c.card_image_id}~${versionSlug(c.card_name) || i}`;
+    while (used.has(id)) id = `${id}-${i}`;
+    used.add(id);
+    return { id, card: c };
+  });
+}
+
+const isReprint = (c) => /_r\d+$/i.test(c.card_image_id) || /\(Reprint\)/i.test(c.card_name);
+const byNumber = (a, b) => (a === b ? 0 : a === Infinity ? 1 : b === Infinity ? -1 : a - b);
+
+/**
+ * Cards a set reprints from other sets (every PRB card, Extra Booster and deck reprints, special cards in boosters).
+ * Cardmarket lists them in the reprinting set's own English and Japanese expansions, every version under the same
+ * name; OPTCG tells the versions apart and has a (US) market price for each. Within one card code, versions and
+ * Cardmarket products are matched by price rank. The Japanese print usually has no plain "Reprint" version: when a
+ * language has fewer products, reprints are left out of the match. Any other difference in count is left unmatched.
+ * Returns prices keyed by "<set id>|<the app's card id>".
+ */
+export function buildReprints(optcgSets, guide, index) {
+  const price = new Map(guide.map((g) => [g.idProduct, g]));
+  const value = (id) => { const g = price.get(id); return num(g?.trend) ?? num(g?.avg30) ?? num(g?.low) ?? Infinity; };
+  const { byExp, main } = index;
+  const byId = {};
+  const report = { sets: 0, matched: 0, unmatched: [], noExpansion: [] };
+  for (const [setId, list] of Object.entries(optcgSets)) {
+    const prefixes = setPrefixes(setId);
+    const exps = Object.fromEntries(['en', 'ja'].map((lang) => [lang, prefixes.map((p) => main.get(`${p}|${lang}`)?.exp).filter((e) => e != null)]));
+    if (!exps.en.length && !exps.ja.length) { report.noExpansion.push(setId); continue; }
+    report.sets++;
+    const guests = new Map();
+    for (const ref of appIds(list)) {
+      const code = ref.card.card_set_id;
+      if (prefixes.some((p) => code.startsWith(`${p}-`))) continue;
+      guests.set(code, [...(guests.get(code) ?? []), ref]);
+    }
+    for (const [code, versions] of guests) {
+      for (const lang of ['en', 'ja']) {
+        const products = [...new Set(exps[lang].flatMap((e) => byExp.get(e)?.get(code) ?? []))];
+        if (!products.length) continue;
+        let vs = versions;
+        if (products.length < vs.length) vs = vs.filter((v) => !isReprint(v.card));
+        if (products.length !== vs.length) { report.unmatched.push(`${setId} ${code} ${lang}: ${versions.length} versions, ${products.length} products`); continue; }
+        const v = [...vs].sort((a, b) => byNumber(a.card.market_price ?? Infinity, b.card.market_price ?? Infinity) || versionOf(a.card.card_image_id) - versionOf(b.card.card_image_id));
+        const p = [...products].sort((a, b) => byNumber(value(a), value(b)) || a - b);
+        v.forEach((ref, i) => { (byId[`${setId}|${ref.id}`] ??= {})[lang] = [p[i], ...priceRow(price.get(p[i]))]; report.matched++; });
+      }
+    }
+  }
+  return { byId, report };
+}
+
+const OPTCG = 'https://optcgapi.com/api';
+async function getJson(url) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': 'collectthemall-prices (personal collection app)' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      if (attempt >= 3) throw new Error(`${url}: ${err.message}`);
+      await new Promise((r) => setTimeout(r, 3000 * attempt));
+    }
+  }
+}
+
+/** Every OPTCG booster set and starter deck with its cards; a set that can't be read today is left out (null). */
+async function loadOptcgSets() {
+  const [sets, decks] = await Promise.all([getJson(`${OPTCG}/allSets/`), getJson(`${OPTCG}/allDecks/`)]);
+  const ids = [...sets.map((s) => ['sets', s.set_id]), ...decks.map((d) => ['decks', d.structure_deck_id])];
+  const out = {};
+  for (const [kind, id] of ids) {
+    try { const list = await getJson(`${OPTCG}/${kind}/${encodeURIComponent(id)}/`); out[id] = Array.isArray(list) ? list : null; }
+    catch { out[id] = null; }
+  }
+  return out;
 }
 
 const SEALED_SKIP = /lots?$|^PCG Set|Set$|Coins$/i;
@@ -111,21 +222,44 @@ async function main() {
   check(pkSealed, 'products', 1000); check(opSingles, 'products', 3000); check(opSealed, 'products', 100);
 
   const updated = opGuide.createdAt ?? pkGuide.createdAt ?? new Date().toISOString();
-  const onepiece = buildOnePiece(opSingles.products, opSealed.products, opGuide.priceGuides);
+  const index = indexOnePiece(opSingles.products, opSealed.products);
+  const onepiece = buildOnePiece(opSingles.products, opSealed.products, opGuide.priceGuides, index);
+
+  // Reprints need OPTCG's version list. If OPTCG can't be reached, yesterday's matches are kept (with today's prices
+  // where the product is the same).
+  let previous = {};
+  try { previous = JSON.parse(await readFile(join(OUT, 'onepiece.json'), 'utf8')); } catch { /* first run */ }
+  let optcgSets = {};
+  try { optcgSets = await loadOptcgSets(); } catch (err) { console.warn(`OPTCG not reachable: ${err.message}`); }
+  const available = Object.fromEntries(Object.entries(optcgSets).filter(([, list]) => list));
+  const { byId, report } = buildReprints(available, opGuide.priceGuides, index);
+  const guidePrice = new Map(opGuide.priceGuides.map((g) => [g.idProduct, g]));
+  const kept = new Set();
+  for (const [key, langs] of Object.entries(previous.byId ?? {})) {
+    const setId = key.split('|')[0];
+    if (available[setId]) continue;
+    kept.add(setId);
+    byId[key] = Object.fromEntries(Object.entries(langs).map(([lang, row]) => [lang, [row[0], ...priceRow(guidePrice.get(row[0]))]]));
+  }
+  const reprintSets = [...new Set([...Object.keys(available), ...kept])].sort();
+  console.log(`Reprints: ${report.matched} versions matched in ${report.sets} sets; ${report.unmatched.length} codes left unmatched; kept from yesterday: ${[...kept].join(', ') || 'none'}; sets without a Cardmarket expansion: ${report.noExpansion.join(', ') || 'none'}.`);
   const sealed = [
     ...buildSealed('pokemon', pkSealed.products, pkGuide.priceGuides),
     ...buildSealed('onepiece', opSealed.products, opGuide.priceGuides),
   ];
   await mkdir(join(OUT, 'history'), { recursive: true });
-  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low'], cards: onepiece }));
+  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low'], cards: onepiece, reprintSets, byId }));
   await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low'], products: sealed }));
-  await writeFile(join(OUT, 'meta.json'), JSON.stringify({ updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, sealedProducts: sealed.length }, null, 2) + '\n');
+  await writeFile(join(OUT, 'meta.json'), JSON.stringify({ updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length, sealedProducts: sealed.length }, null, 2) + '\n');
 
   // Weekly snapshot of trend prices (One Piece singles and all sealed), for price history.
   const day = updated.slice(0, 10);
   if (new Date(day).getUTCDay() === 1 || process.argv.includes('--history')) {
     const lines = ['idProduct,trend'];
-    for (const langs of Object.values(onepiece)) for (const rows of Object.values(langs)) for (const r of rows) if (r[1] != null) lines.push(`${r[0]},${r[1]}`);
+    const seen = new Set();
+    const addLine = (r) => { if (r[1] != null && !seen.has(r[0])) { seen.add(r[0]); lines.push(`${r[0]},${r[1]}`); } };
+    for (const langs of Object.values(onepiece)) for (const rows of Object.values(langs)) rows.forEach(addLine);
+    for (const langs of Object.values(byId)) Object.values(langs).forEach(addLine);
     for (const r of sealed) if (r[4] != null) lines.push(`${r[0]},${r[4]}`);
     await writeFile(join(OUT, 'history', `${day}.csv`), lines.join('\n') + '\n');
   }

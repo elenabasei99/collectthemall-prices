@@ -22,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Test
+        run: node --test scripts/build.test.mjs
       - name: Build price files
         run: node scripts/build.mjs
       - name: Publish
