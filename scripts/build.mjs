@@ -3,6 +3,7 @@
 // Writes data/onepiece.json, data/sealed.json, data/meta.json and, once a week, data/history/<date>.csv.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 
 const CM = 'https://downloads.s3.cardmarket.com/productCatalog';
 const GAMES = { pokemon: 6, onepiece: 18 };
@@ -210,16 +211,17 @@ export function buildSealed(game, nonsingles, guide) {
 }
 
 async function main() {
-  const [pkGuide, pkSealed, opGuide, opSingles, opSealed] = await Promise.all([
+  const [pkGuide, pkSealed, pkSingles, opGuide, opSingles, opSealed] = await Promise.all([
     load(`priceGuide/price_guide_${GAMES.pokemon}.json`),
     load(`productList/products_nonsingles_${GAMES.pokemon}.json`),
+    load(`productList/products_singles_${GAMES.pokemon}.json`),
     load(`priceGuide/price_guide_${GAMES.onepiece}.json`),
     load(`productList/products_singles_${GAMES.onepiece}.json`),
     load(`productList/products_nonsingles_${GAMES.onepiece}.json`),
   ]);
   const check = (f, key, min) => { if (!Array.isArray(f?.[key]) || f[key].length < min) throw new Error(`unexpected file: ${key} has ${f?.[key]?.length}`); };
   check(pkGuide, 'priceGuides', 10000); check(opGuide, 'priceGuides', 3000);
-  check(pkSealed, 'products', 1000); check(opSingles, 'products', 3000); check(opSealed, 'products', 100);
+  check(pkSealed, 'products', 1000); check(pkSingles, 'products', 30000); check(opSingles, 'products', 3000); check(opSealed, 'products', 100);
 
   const updated = opGuide.createdAt ?? pkGuide.createdAt ?? new Date().toISOString();
   const index = indexOnePiece(opSingles.products, opSealed.products);
@@ -251,6 +253,25 @@ async function main() {
   await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low'], cards: onepiece, reprintSets, byId }));
   await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low'], products: sealed }));
   await writeFile(join(OUT, 'meta.json'), JSON.stringify({ updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length, sealedProducts: sealed.length }, null, 2) + '\n');
+
+  // Japanese Pokémon catalogue (TCGplayer via tcgcsv.com, matched to Cardmarket). If a source can't be read today,
+  // yesterday's files stay as they are.
+  try {
+    const species = JSON.parse(await readFile(new URL('./species.json', import.meta.url), 'utf8')).species;
+    const downloaded = await downloadJapanese();
+    const ja = buildJapanese({ ...downloaded, species, cm: { singles: pkSingles.products, nonsingles: pkSealed.products, guide: pkGuide.priceGuides } });
+    if (ja.cards.length < 20000) throw new Error(`only ${ja.cards.length} Japanese cards`);
+    await mkdir(join(OUT, 'pokemon'), { recursive: true });
+    await writeFile(join(OUT, 'pokemon', 'ja.json'), JSON.stringify({
+      updated, eurPerUsd: Math.round(downloaded.eurPerUsd * 10000) / 10000,
+      columns: ['productId', 'setId', 'number', 'name', 'version', 'rarity', 'dex', 'tcgdexId', 'cardmarket', 'eurFromUsd'],
+      sets: ja.sets, cards: ja.cards,
+    }));
+    await writeFile(join(OUT, 'pokemon', 'tcgdex-dex.json'), JSON.stringify({ updated, columns: ['id', 'name', 'image'], ...ja.tcgdexDex }));
+    console.log(`Japanese Pokémon: ${JSON.stringify(ja.report)}`);
+  } catch (err) {
+    console.warn(`Japanese Pokémon catalogue not updated: ${err.message}`);
+  }
 
   // Weekly snapshot of trend prices (One Piece singles and all sealed), for price history.
   const day = updated.slice(0, 10);
