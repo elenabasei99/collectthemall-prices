@@ -1,0 +1,34 @@
+name: Daily prices
+
+on:
+  schedule:
+    # Cardmarket publishes its price guide around 01:45 UTC; run a little after.
+    - cron: '20 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prices
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build price files
+        run: node scripts/build.mjs
+      - name: Publish
+        run: |
+          git config user.name "collectthemall-prices bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Prices of $(date -u +%F)"
+          git push
