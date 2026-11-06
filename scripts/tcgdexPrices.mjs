@@ -73,7 +73,7 @@ export async function readDataFolder(root) {
 
 const CODE = { normal: 'n', holo: 'h', reverse: 'r', firstEdition: 'f' };
 
-/** id → [idProduct, trend, avg30, avg, trendHolo, avg30Holo, versions ("nhrf")] for cards with a product or versions. */
+/** id → [idProduct, trend, avg30, avg, trendHolo, avg30Holo, versions ("nhrf"), avg7, avg1, avg7Holo] for cards with a product or versions. */
 export function priceCards(cards, guide) {
   const g = new Map(guide.map((x) => [x.idProduct, x]));
   const out = {};
@@ -81,7 +81,7 @@ export function priceCards(cards, guide) {
     const p = c.product != null ? g.get(c.product) : null;
     const v = c.versions.map((x) => CODE[x]).join('');
     if (c.product == null && !v) continue;
-    out[c.id] = [c.product, num(p?.trend), num(p?.avg30), num(p?.avg), num(p?.['trend-holo']), num(p?.['avg30-holo']), v];
+    out[c.id] = [c.product, num(p?.trend), num(p?.avg30), num(p?.avg), num(p?.['trend-holo']), num(p?.['avg30-holo']), v, num(p?.avg7), num(p?.avg1), num(p?.['avg7-holo'])];
   }
   return out;
 }

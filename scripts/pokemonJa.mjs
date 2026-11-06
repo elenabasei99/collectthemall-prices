@@ -226,8 +226,8 @@ export function buildJapanese({ groups, tcgdexJa, tcgdexZhTw, species, cm, eurPe
       if (m) {
         const pg = guide.get(m[0]);
         cmRow = m[1]
-          ? [m[0], num(pg?.['trend-holo']), num(pg?.['avg30-holo']), num(pg?.['low-holo'])]
-          : [m[0], num(pg?.trend), num(pg?.avg30), num(pg?.low)];
+          ? [m[0], num(pg?.['trend-holo']), num(pg?.['avg30-holo']), num(pg?.['low-holo']), num(pg?.['avg7-holo']), num(pg?.['avg1-holo'])]
+          : [m[0], num(pg?.trend), num(pg?.avg30), num(pg?.low), num(pg?.avg7), num(pg?.avg1)];
         if (cmRow[1] == null && cmRow[2] == null) cmRow = null; // no Cardmarket price: TCGplayer's below
       }
       const u = usd(c.productId);

@@ -96,7 +96,7 @@ test('catalogue rows: TCGdex twin, Pokédex number, Cardmarket price, else TCGpl
     },
   });
   assert.deepEqual(out.sets, { 1: ['Shiny Star V', '2020-11-20', 'S4a'] });
-  assert.deepEqual(out.cards[0], [10, 1, '001', 'Rowlet', '', '', 722, 'S4a-001', [5, 0.3, 0.25, 0.1], 0.9]);
+  assert.deepEqual(out.cards[0], [10, 1, '001', 'Rowlet', '', '', 722, 'S4a-001', [5, 0.3, 0.25, 0.1, null, null], 0.9]);
   assert.deepEqual(out.cards[1], [11, 1, '002', 'Dartrix', '', '', 723, '', null, 1.8]);
   assert.deepEqual(out.tcgdexDex.ja[722], [['S4a-001', 'モクロー', 'https://assets.tcgdex.net/ja/S/S4a/001']]);
   assert.deepEqual(out.tcgdexDex['zh-tw'][722], [['S4a-001', '木木梟', '']]);

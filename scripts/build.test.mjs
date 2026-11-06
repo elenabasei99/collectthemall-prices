@@ -19,8 +19,8 @@ test('One Piece versions are split by English and Japanese expansion, in product
   ];
   const guide = [{ idProduct: 10, trend: 4.64 }, { idProduct: 11, trend: 91.96, avg30: 106.4 }, { idProduct: 20, trend: 3.52 }];
   const cards = buildOnePiece(singles, nonsingles, guide);
-  assert.deepEqual(cards['OP01-120'].en, [[10, 4.64, null, null], [11, 91.96, 106.4, null]]);
-  assert.deepEqual(cards['OP01-120'].ja, [[20, 3.52, null, null]]);
+  assert.deepEqual(cards['OP01-120'].en, [[10, 4.64, null, null, null, null], [11, 91.96, 106.4, null, null, null]]);
+  assert.deepEqual(cards['OP01-120'].ja, [[20, 3.52, null, null, null, null]]);
   assert.equal(cards['OP01-001'].en.length, 1);
   assert.deepEqual(cards['P-001'].en.map((r) => r[0]), [40, 41]);
 });
@@ -31,7 +31,7 @@ test('sealed products skip lots, coins and sets', () => {
     { idProduct: 2, name: 'Lot', categoryName: 'Pokémon Lot' },
     { idProduct: 3, name: 'Coin', categoryName: 'Pokémon Coins' },
   ], [{ idProduct: 1, trend: 150.96, low: 85 }]);
-  assert.deepEqual(rows, [[1, 'pokemon', 'ETB', 'Elite Trainer Boxes', 150.96, null, 85]]);
+  assert.deepEqual(rows, [[1, 'pokemon', 'ETB', 'Elite Trainer Boxes', 150.96, null, 85, null, null]]);
 });
 
 test('set prefixes', () => {
@@ -74,9 +74,9 @@ test('reprints are priced from the reprinting set, versions matched by price ran
     ],
   };
   const { byId, report } = buildReprints(optcg, guide, indexOnePiece(singles, nonsingles));
-  assert.deepEqual(byId['PRB-01|OP01-006_r1'], { en: [31, 0.2, null, null] }); // no Japanese plain reprint
-  assert.deepEqual(byId['PRB-01|OP01-006_p3'], { en: [32, 0.4, null, null], ja: [41, 0.1, null, null] });
-  assert.deepEqual(byId['PRB-01|OP01-006_p5'], { en: [30, 9.5, null, null], ja: [40, 3.2, null, null] });
+  assert.deepEqual(byId['PRB-01|OP01-006_r1'], { en: [31, 0.2, null, null, null, null] }); // no Japanese plain reprint
+  assert.deepEqual(byId['PRB-01|OP01-006_p3'], { en: [32, 0.4, null, null, null, null], ja: [41, 0.1, null, null, null, null] });
+  assert.deepEqual(byId['PRB-01|OP01-006_p5'], { en: [30, 9.5, null, null, null, null], ja: [40, 3.2, null, null, null, null] });
   assert.equal(byId['PRB-01|PRB01-001'], undefined); // the set's own codes keep the usual lookup
   assert.equal(report.unmatched.length, 0);
 });

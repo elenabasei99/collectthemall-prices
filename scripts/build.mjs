@@ -29,8 +29,9 @@ async function load(path) {
 }
 
 const num = (x) => (typeof x === 'number' && x > 0 ? Math.round(x * 100) / 100 : null);
-/** [trend, avg30, low] — the app uses trend, then the 30-day average. */
-const priceRow = (g) => (g ? [num(g.trend), num(g.avg30), num(g.low)] : [null, null, null]);
+/** [trend, avg30, low, avg7, avg1] — the app uses trend, then the 30-day average; the 7- and 1-day averages show
+ * where a price is going (added at the end, so older versions of the app read the rows as before). */
+const priceRow = (g) => (g ? [num(g.trend), num(g.avg30), num(g.low), num(g.avg7), num(g.avg1)] : [null, null, null, null, null]);
 
 const CODE = /\(([A-Z]{1,4}\d{0,2}-\d{2,3})\)/;
 
@@ -254,8 +255,8 @@ async function main() {
     ...buildSealed('onepiece', opSealed.products, opGuide.priceGuides),
   ];
   await mkdir(join(OUT, 'history'), { recursive: true });
-  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low'], cards: onepiece, reprintSets, byId }));
-  await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low'], products: sealed }));
+  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low', 'avg7', 'avg1'], cards: onepiece, reprintSets, byId }));
+  await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low', 'avg7', 'avg1'], products: sealed }));
   await writeFile(join(OUT, 'meta.json'), JSON.stringify({ updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length, sealedProducts: sealed.length }, null, 2) + '\n');
 
   // Japanese Pokémon catalogue (TCGplayer via tcgcsv.com, matched to Cardmarket). If a source can't be read today,
@@ -270,7 +271,7 @@ async function main() {
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
     await writeFile(join(OUT, 'pokemon', 'ja.json'), JSON.stringify({
       updated, eurPerUsd: Math.round(downloaded.eurPerUsd * 10000) / 10000,
-      columns: ['productId', 'setId', 'number', 'name', 'version', 'rarity', 'dex', 'tcgdexId', 'cardmarket', 'eurFromUsd'],
+      columns: ['productId', 'setId', 'number', 'name', 'version', 'rarity', 'dex', 'tcgdexId', 'cardmarket [idProduct, trend, avg30, low, avg7, avg1]', 'eurFromUsd'],
       sets: ja.sets, cards: ja.cards,
     }));
     await writeFile(join(OUT, 'pokemon', 'tcgdex-dex.json'), JSON.stringify({ updated, columns: ['id', 'name', 'image'], ...ja.tcgdexDex }));
@@ -295,7 +296,7 @@ async function main() {
   // the app reads one file instead of asking TCGdex card by card. Kept from yesterday if TCGdex's data can't be read.
   try {
     const dirs = cloneTcgdex(process.env.TCGDEX_DIR ?? join(tmpdir(), 'tcgdex-cards-database'));
-    const columns = ['idProduct', 'trend', 'avg30', 'avg', 'trendHolo', 'avg30Holo', 'versions (n normal, h holo, r reverse, f 1st edition)'];
+    const columns = ['idProduct', 'trend', 'avg30', 'avg', 'trendHolo', 'avg30Holo', 'versions (n normal, h holo, r reverse, f 1st edition)', 'avg7', 'avg1', 'avg7Holo'];
     for (const [name, dir] of [['en', dirs.en], ['asia', dirs.asia]]) {
       const cards = priceCards(await readDataFolder(dir), pkGuide.priceGuides);
       if (Object.keys(cards).length < (name === 'en' ? 15000 : 8000)) throw new Error(`only ${Object.keys(cards).length} ${name} cards`);
