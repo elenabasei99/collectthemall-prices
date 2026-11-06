@@ -4,6 +4,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
+import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 
 const CM = 'https://downloads.s3.cardmarket.com/productCatalog';
 const GAMES = { pokemon: 6, onepiece: 18 };
@@ -271,6 +272,18 @@ async function main() {
     console.log(`Japanese Pokémon: ${JSON.stringify(ja.report)}`);
   } catch (err) {
     console.warn(`Japanese Pokémon catalogue not updated: ${err.message}`);
+  }
+
+  // Pictures for English (and so Italian) TCGdex cards without one, from TCGplayer. Kept from yesterday on failure.
+  try {
+    const en = await downloadEnglish();
+    const { images, report } = matchEnglishImages(en.cards, en.groups, en.setNames);
+    if (Object.keys(images).length < 500) throw new Error(`only ${Object.keys(images).length} pictures`);
+    await mkdir(join(OUT, 'pokemon'), { recursive: true });
+    await writeFile(join(OUT, 'pokemon', 'en-images.json'), JSON.stringify({ updated, base: 'https://tcgplayer-cdn.tcgplayer.com/product/', images }));
+    console.log(`English pictures: ${report.found} of ${report.missing} missing found; sets not on TCGplayer: ${report.unpaired.join(', ') || 'none'}`);
+  } catch (err) {
+    console.warn(`English pictures not updated: ${err.message}`);
   }
 
   // Weekly snapshot of trend prices (One Piece singles and all sealed), for price history.
