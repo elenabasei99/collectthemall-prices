@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
+import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
 
 const CM = 'https://downloads.s3.cardmarket.com/productCatalog';
 const GAMES = { pokemon: 6, onepiece: 18 };
@@ -257,9 +258,11 @@ async function main() {
 
   // Japanese Pokémon catalogue (TCGplayer via tcgcsv.com, matched to Cardmarket). If a source can't be read today,
   // yesterday's files stay as they are.
+  let jaGroups = null;
   try {
     const species = JSON.parse(await readFile(new URL('./species.json', import.meta.url), 'utf8')).species;
     const downloaded = await downloadJapanese();
+    jaGroups = downloaded.groups;
     const ja = buildJapanese({ ...downloaded, species, cm: { singles: pkSingles.products, nonsingles: pkSealed.products, guide: pkGuide.priceGuides } });
     if (ja.cards.length < 20000) throw new Error(`only ${ja.cards.length} Japanese cards`);
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
@@ -284,6 +287,22 @@ async function main() {
     console.log(`English pictures: ${report.found} of ${report.missing} missing found; sets not on TCGplayer: ${report.unpaired.join(', ') || 'none'}`);
   } catch (err) {
     console.warn(`English pictures not updated: ${err.message}`);
+  }
+
+  // Release days of sets (the app filters cards by year). A part whose source can't be read keeps yesterday's.
+  {
+    let previous = {};
+    try { previous = JSON.parse(await readFile(join(OUT, 'release-dates.json'), 'utf8')); } catch { /* first run */ }
+    const src = await downloadReleaseSources();
+    const built = buildReleaseDates({ tcgdexSets: src.tcgdexSets ?? [], jaGroups: jaGroups ?? [], opGroups: src.opGroups ?? [] });
+    const dates = {
+      updated,
+      pokemon: src.tcgdexSets ? built.pokemon : previous.pokemon ?? {},
+      pokemonJa: jaGroups ? built.pokemonJa : previous.pokemonJa ?? {},
+      onepiece: src.opGroups ? built.onepiece : previous.onepiece ?? {},
+    };
+    await writeFile(join(OUT, 'release-dates.json'), JSON.stringify(dates));
+    console.log(`Release days: ${Object.keys(dates.pokemon).length} Pokémon sets, ${Object.keys(dates.pokemonJa).length} Japanese, ${Object.keys(dates.onepiece).length} One Piece.`);
   }
 
   // Weekly snapshot of trend prices (One Piece singles and all sealed), for price history.
