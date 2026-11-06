@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
       - name: Test
-        run: node --test scripts/build.test.mjs scripts/pokemonJa.test.mjs scripts/pokemonImages.test.mjs scripts/releaseDates.test.mjs
+        run: node --test scripts/build.test.mjs scripts/pokemonJa.test.mjs scripts/pokemonImages.test.mjs scripts/releaseDates.test.mjs scripts/tcgdexPrices.test.mjs
       - name: Build price files
         run: node scripts/build.mjs
       - name: Publish

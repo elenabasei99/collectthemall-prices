@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
+import { cloneTcgdex, priceCards, readDataFolder } from './tcgdexPrices.mjs';
+import { tmpdir } from 'node:os';
 
 const CM = 'https://downloads.s3.cardmarket.com/productCatalog';
 const GAMES = { pokemon: 6, onepiece: 18 };
@@ -287,6 +289,22 @@ async function main() {
     console.log(`English pictures: ${report.found} of ${report.missing} missing found; sets not on TCGplayer: ${report.unpaired.join(', ') || 'none'}`);
   } catch (err) {
     console.warn(`English pictures not updated: ${err.message}`);
+  }
+
+  // Prices of every card TCGdex lists (Cardmarket's guide for the product each card names), one file per language, so
+  // the app reads one file instead of asking TCGdex card by card. Kept from yesterday if TCGdex's data can't be read.
+  try {
+    const dirs = cloneTcgdex(process.env.TCGDEX_DIR ?? join(tmpdir(), 'tcgdex-cards-database'));
+    const columns = ['idProduct', 'trend', 'avg30', 'avg', 'trendHolo', 'avg30Holo', 'versions (n normal, h holo, r reverse, f 1st edition)'];
+    for (const [name, dir] of [['en', dirs.en], ['asia', dirs.asia]]) {
+      const cards = priceCards(await readDataFolder(dir), pkGuide.priceGuides);
+      if (Object.keys(cards).length < (name === 'en' ? 15000 : 8000)) throw new Error(`only ${Object.keys(cards).length} ${name} cards`);
+      await mkdir(join(OUT, 'pokemon'), { recursive: true });
+      await writeFile(join(OUT, 'pokemon', `tcgdex-${name}.json`), JSON.stringify({ updated, columns, cards }));
+      console.log(`TCGdex ${name}: ${Object.keys(cards).length} cards priced`);
+    }
+  } catch (err) {
+    console.warn(`TCGdex prices not updated: ${err.message}`);
   }
 
   // Release days of sets (the app filters cards by year). A part whose source can't be read keeps yesterday's.
