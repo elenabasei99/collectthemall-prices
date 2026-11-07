@@ -7,6 +7,7 @@ import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
 import { cloneTcgdex, priceCards, readDataFolder } from './tcgdexPrices.mjs';
+import { expansionLabels, onePieceExtras, pokemonExtras } from './cardmarketExtras.mjs';
 import { tmpdir } from 'node:os';
 
 const CM = 'https://downloads.s3.cardmarket.com/productCatalog';
@@ -31,6 +32,8 @@ async function load(path) {
 const num = (x) => (typeof x === 'number' && x > 0 ? Math.round(x * 100) / 100 : null);
 /** [trend, avg30, low, avg7, avg1] — the app uses trend, then the 30-day average; the 7- and 1-day averages show
  * where a price is going (added at the end, so older versions of the app read the rows as before). */
+/** The names of these expansions only. */
+const labelsFor = (labels, ids) => Object.fromEntries([...new Set(ids)].filter((id) => labels[id]).map((id) => [id, labels[id]]));
 const priceRow = (g) => (g ? [num(g.trend), num(g.avg30), num(g.low), num(g.avg7), num(g.avg1)] : [null, null, null, null, null]);
 
 const CODE = /\(([A-Z]{1,4}\d{0,2}-\d{2,3})\)/;
@@ -272,7 +275,16 @@ async function main() {
     ...buildSealed('onepiece', opSealed.products, opGuide.priceGuides),
   ];
   await mkdir(join(OUT, 'history'), { recursive: true });
-  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low', 'avg7', 'avg1'], cards: onepiece, reprintSets, byId }));
+  // Versions Cardmarket sells that OPTCG doesn't list (Asian-exclusive promos, special prints…), by code.
+  const opCovered = new Set();
+  for (const langs of Object.values(onepiece)) for (const rows of Object.values(langs)) for (const r of rows) opCovered.add(r[0]);
+  for (const langs of Object.values(byId)) for (const r of Object.values(langs)) opCovered.add(r[0]);
+  const opBoxes = new Map();
+  for (const x of opSealed.products) opBoxes.set(x.idExpansion, [...(opBoxes.get(x.idExpansion) ?? []), x.name]);
+  const opKind = (exp) => ((opBoxes.get(exp) ?? []).some((n) => /non-english|asia/i.test(n)) ? 'ja' : 'en');
+  const extras = onePieceExtras(opSingles.products, opGuide.priceGuides, opCovered, opKind, priceRow);
+  done('One Piece special versions', { versions: Object.values(extras).reduce((n, l) => n + l.length, 0), codes: Object.keys(extras).length });
+  await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low', 'avg7', 'avg1'], cards: onepiece, reprintSets, byId, extras, extraSets: labelsFor(expansionLabels(opSealed.products), Object.values(extras).flat().map((r) => r[2])) }));
   await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low', 'avg7', 'avg1'], products: sealed }));
 
   // Japanese Pokémon catalogue (TCGplayer via tcgcsv.com, matched to Cardmarket). If a source can't be read today,
@@ -325,6 +337,25 @@ async function main() {
     }
   } catch (err) {
     keptPart('Pokémon prices', err);
+  }
+
+  // Pokémon cards Cardmarket sells that no catalogue covers (searched in the app on request), one file per letter.
+  try {
+    const covered = new Set();
+    const read = async (f) => JSON.parse(await readFile(join(OUT, 'pokemon', f), 'utf8'));
+    for (const f of ['tcgdex-en.json', 'tcgdex-asia.json']) for (const r of Object.values((await read(f)).cards)) if (r[0]) covered.add(r[0]);
+    for (const r of (await read('ja.json')).cards) if (r[8]) covered.add(r[8][0]);
+    const extras = pokemonExtras(pkSingles.products, pkGuide.priceGuides, covered, priceRow);
+    await mkdir(join(OUT, 'pokemon', 'cm'), { recursive: true });
+    const letters = ['_', '0', ...'abcdefghijklmnopqrstuvwxyz'];
+    const labels = expansionLabels(pkSealed.products);
+    for (const l of letters) {
+      const cards = extras[l] ?? [];
+      await writeFile(join(OUT, 'pokemon', 'cm', `${l}.json`), JSON.stringify({ updated, columns: ['idProduct', 'name', 'idExpansion', 'trend', 'avg30', 'low', 'avg7', 'avg1'], cards, expansions: labelsFor(labels, cards.map((r) => r[2])) }));
+    }
+    done('Pokémon cards on Cardmarket only', { cards: Object.values(extras).reduce((n, l) => n + l.length, 0) });
+  } catch (err) {
+    keptPart('Pokémon cards on Cardmarket only', err);
   }
 
   // Release days of sets (the app filters cards by year). A part whose source can't be read keeps yesterday's.
