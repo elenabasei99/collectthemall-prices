@@ -149,7 +149,12 @@ const byNumber = (a, b) => (a === b ? 0 : a === Infinity ? 1 : b === Infinity ? 
  */
 export function buildReprints(optcgSets, guide, index) {
   const price = new Map(guide.map((g) => [g.idProduct, g]));
-  const value = (id) => { const g = price.get(id); return num(g?.trend) ?? num(g?.avg30) ?? num(g?.low) ?? Infinity; };
+  // Ranked by trend, unless it is far from the 30-day average (it jumps for cards that rarely sell): then the average.
+  const value = (id) => {
+    const g = price.get(id); const tr = num(g?.trend), a30 = num(g?.avg30);
+    const steady = tr != null && a30 != null && (tr < a30 / 3 || tr > a30 * 3) ? a30 : tr ?? a30;
+    return steady ?? num(g?.low) ?? Infinity;
+  };
   const { byExp, main } = index;
   const byId = {};
   const report = { sets: 0, matched: 0, unmatched: [], noExpansion: [] };

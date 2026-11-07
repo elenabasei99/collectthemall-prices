@@ -95,3 +95,19 @@ test('a version count that does not add up is left unmatched rather than guessed
   assert.deepEqual(byId, {});
   assert.equal(report.unmatched.length, 1);
 });
+
+test('reprint versions are ranked by a steady price: a trend far from the 30-day average is not trusted', () => {
+  const singles = [
+    { idProduct: 30, name: 'Otama (OP01-006)', idExpansion: 3 }, { idProduct: 31, name: 'Otama (OP01-006)', idExpansion: 3 },
+    { idProduct: 33, name: 'Nami (PRB01-001)', idExpansion: 3 },
+  ];
+  // product 30 is the Alternate Art (about 9 €) but its trend fell to 0.02 € today
+  const guide = [{ idProduct: 30, trend: 0.02, avg30: 9.1 }, { idProduct: 31, trend: 0.4, avg30: 0.35 }];
+  const optcg = { 'PRB-01': [
+    { card_set_id: 'OP01-006', card_image_id: 'OP01-006_p3', card_name: 'Otama (Jolly Roger Foil)', market_price: 0.42 },
+    { card_set_id: 'OP01-006', card_image_id: 'OP01-006_p5', card_name: 'Otama (Alternate Art)', market_price: 7.19 },
+  ] };
+  const { byId } = buildReprints(optcg, guide, indexOnePiece(singles, [{ idExpansion: 3, name: 'The Best Booster' }]));
+  assert.equal(byId['PRB-01|OP01-006_p5'].en[0], 30);
+  assert.equal(byId['PRB-01|OP01-006_p3'].en[0], 31);
+});
