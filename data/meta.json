@@ -1,7 +1,41 @@
 {
   "updated": "2026-11-07T02:45:58+0100",
-  "built": "2026-11-07T09:19:17.412Z",
+  "built": "2026-11-07T11:04:54.864Z",
   "onepieceCards": 2890,
   "reprintVersions": 855,
-  "sealedProducts": 3863
+  "sealedProducts": 3863,
+  "allPartsUpdated": true,
+  "parts": {
+    "One Piece reprints": {
+      "ok": true,
+      "versions": 1505,
+      "sets": 57,
+      "unmatchedCodes": 17
+    },
+    "Japanese Pokémon catalogue": {
+      "ok": true,
+      "cards": 27951,
+      "cardmarket": 23119,
+      "tcgplayerOnly": 3643
+    },
+    "English pictures": {
+      "ok": true,
+      "found": 1543,
+      "missing": 1749
+    },
+    "Pokémon prices (en)": {
+      "ok": true,
+      "cards": 20731
+    },
+    "Pokémon prices (asia)": {
+      "ok": true,
+      "cards": 13296
+    },
+    "Release days": {
+      "ok": true,
+      "pokemon": 220,
+      "japanese": 414,
+      "onepiece": 66
+    }
+  }
 }
