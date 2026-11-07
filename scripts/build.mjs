@@ -234,6 +234,15 @@ async function main() {
   check(pkSealed, 'products', 1000); check(pkSingles, 'products', 30000); check(opSingles, 'products', 3000); check(opSealed, 'products', 100);
 
   const updated = opGuide.createdAt ?? pkGuide.createdAt ?? new Date().toISOString();
+  // What each part of today's build did, published in meta.json (anyone can read it) and, on GitHub, as warnings on
+  // the run's page: a part that can't be rebuilt keeps yesterday's files without failing the whole run.
+  const parts = {};
+  const done = (name, detail) => { parts[name] = { ok: true, ...detail }; };
+  const keptPart = (name, err) => {
+    parts[name] = { ok: false, kept: 'yesterday', error: String(err?.message ?? err) };
+    console.warn(`${name} not updated: ${parts[name].error}`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=${name} kept from yesterday::${parts[name].error.replace(/\r?\n/g, ' ')}`);
+  };
   const index = indexOnePiece(opSingles.products, opSealed.products);
   const onepiece = buildOnePiece(opSingles.products, opSealed.products, opGuide.priceGuides, index);
 
@@ -242,7 +251,8 @@ async function main() {
   let previous = {};
   try { previous = JSON.parse(await readFile(join(OUT, 'onepiece.json'), 'utf8')); } catch { /* first run */ }
   let optcgSets = {};
-  try { optcgSets = await loadOptcgSets(); } catch (err) { console.warn(`OPTCG not reachable: ${err.message}`); }
+  let optcgError = null;
+  try { optcgSets = await loadOptcgSets(); } catch (err) { optcgError = err; }
   const available = Object.fromEntries(Object.entries(optcgSets).filter(([, list]) => list));
   const { byId, report } = buildReprints(available, opGuide.priceGuides, index);
   const guidePrice = new Map(opGuide.priceGuides.map((g) => [g.idProduct, g]));
@@ -254,6 +264,8 @@ async function main() {
     byId[key] = Object.fromEntries(Object.entries(langs).map(([lang, row]) => [lang, [row[0], ...priceRow(guidePrice.get(row[0]))]]));
   }
   const reprintSets = [...new Set([...Object.keys(available), ...kept])].sort();
+  if (optcgError || kept.size) keptPart('One Piece reprints', optcgError ?? `OPTCG didn't give: ${[...kept].join(', ')}`);
+  else done('One Piece reprints', { versions: report.matched, sets: report.sets, unmatchedCodes: report.unmatched.length });
   console.log(`Reprints: ${report.matched} versions matched in ${report.sets} sets; ${report.unmatched.length} codes left unmatched; kept from yesterday: ${[...kept].join(', ') || 'none'}; sets without a Cardmarket expansion: ${report.noExpansion.join(', ') || 'none'}.`);
   const sealed = [
     ...buildSealed('pokemon', pkSealed.products, pkGuide.priceGuides),
@@ -262,7 +274,6 @@ async function main() {
   await mkdir(join(OUT, 'history'), { recursive: true });
   await writeFile(join(OUT, 'onepiece.json'), JSON.stringify({ updated, columns: ['idProduct', 'trend', 'avg30', 'low', 'avg7', 'avg1'], cards: onepiece, reprintSets, byId }));
   await writeFile(join(OUT, 'sealed.json'), JSON.stringify({ updated, columns: ['idProduct', 'game', 'name', 'category', 'trend', 'avg30', 'low', 'avg7', 'avg1'], products: sealed }));
-  await writeFile(join(OUT, 'meta.json'), JSON.stringify({ updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length, sealedProducts: sealed.length }, null, 2) + '\n');
 
   // Japanese Pokémon catalogue (TCGplayer via tcgcsv.com, matched to Cardmarket). If a source can't be read today,
   // yesterday's files stay as they are.
@@ -281,8 +292,9 @@ async function main() {
     }));
     await writeFile(join(OUT, 'pokemon', 'tcgdex-dex.json'), JSON.stringify({ updated, columns: ['id', 'name', 'image'], ...ja.tcgdexDex }));
     console.log(`Japanese Pokémon: ${JSON.stringify(ja.report)}`);
+    done('Japanese Pokémon catalogue', { cards: ja.report.cards, cardmarket: ja.report.cardmarket, tcgplayerOnly: ja.report.tcgplayerOnly });
   } catch (err) {
-    console.warn(`Japanese Pokémon catalogue not updated: ${err.message}`);
+    keptPart('Japanese Pokémon catalogue', err);
   }
 
   // Pictures for English (and so Italian) TCGdex cards without one, from TCGplayer. Kept from yesterday on failure.
@@ -293,8 +305,9 @@ async function main() {
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
     await writeFile(join(OUT, 'pokemon', 'en-images.json'), JSON.stringify({ updated, base: 'https://tcgplayer-cdn.tcgplayer.com/product/', images }));
     console.log(`English pictures: ${report.found} of ${report.missing} missing found; sets not on TCGplayer: ${report.unpaired.join(', ') || 'none'}`);
+    done('English pictures', { found: report.found, missing: report.missing });
   } catch (err) {
-    console.warn(`English pictures not updated: ${err.message}`);
+    keptPart('English pictures', err);
   }
 
   // Prices of every card TCGdex lists (Cardmarket's guide for the product each card names), one file per language, so
@@ -308,9 +321,10 @@ async function main() {
       await mkdir(join(OUT, 'pokemon'), { recursive: true });
       await writeFile(join(OUT, 'pokemon', `tcgdex-${name}.json`), JSON.stringify({ updated, columns, cards }));
       console.log(`TCGdex ${name}: ${Object.keys(cards).length} cards priced`);
+      done(`Pokémon prices (${name})`, { cards: Object.keys(cards).length });
     }
   } catch (err) {
-    console.warn(`TCGdex prices not updated: ${err.message}`);
+    keptPart('Pokémon prices', err);
   }
 
   // Release days of sets (the app filters cards by year). A part whose source can't be read keeps yesterday's.
@@ -326,6 +340,9 @@ async function main() {
       onepiece: src.opGroups ? built.onepiece : previous.onepiece ?? {},
     };
     await writeFile(join(OUT, 'release-dates.json'), JSON.stringify(dates));
+    const missing = [!src.tcgdexSets && 'TCGdex sets', !jaGroups && 'Japanese sets', !src.opGroups && 'One Piece sets'].filter(Boolean);
+    if (missing.length) keptPart('Release days', `kept from yesterday: ${missing.join(', ')}`);
+    else done('Release days', { pokemon: Object.keys(dates.pokemon).length, japanese: Object.keys(dates.pokemonJa).length, onepiece: Object.keys(dates.onepiece).length });
     console.log(`Release days: ${Object.keys(dates.pokemon).length} Pokémon sets, ${Object.keys(dates.pokemonJa).length} Japanese, ${Object.keys(dates.onepiece).length} One Piece.`);
   }
 
@@ -340,6 +357,10 @@ async function main() {
     for (const r of sealed) if (r[4] != null) lines.push(`${r[0]},${r[4]}`);
     await writeFile(join(OUT, 'history', `${day}.csv`), lines.join('\n') + '\n');
   }
+  await writeFile(join(OUT, 'meta.json'), JSON.stringify({
+    updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length,
+    sealedProducts: sealed.length, allPartsUpdated: Object.values(parts).every((x) => x.ok), parts,
+  }, null, 2) + '\n');
   console.log(`Prices of ${updated}: ${Object.keys(onepiece).length} One Piece cards, ${sealed.length} sealed products.`);
 }
 

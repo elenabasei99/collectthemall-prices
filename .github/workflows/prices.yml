@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
       - name: Test
         run: node --test scripts/build.test.mjs scripts/pokemonJa.test.mjs scripts/pokemonImages.test.mjs scripts/releaseDates.test.mjs scripts/tcgdexPrices.test.mjs
       - name: Build price files
