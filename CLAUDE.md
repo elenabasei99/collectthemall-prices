@@ -2,7 +2,7 @@
 
 Daily price files for the CollectThemAll app. The app's notes are in `../CollectThemAll/CLAUDE.md` (section "Prices: data and repo"); read that first.
 
-- The Action "Daily prices" (`.github/workflows/prices.yml`, cron 04:20 UTC, often hours late) runs `node scripts/build.mjs` and commits `data/`.
+- The Action "Daily prices" (`.github/workflows/prices.yml`, cron 02:17 and 07:43 UTC, often hours late) runs `node scripts/build.mjs` and commits `data/`.
   - `data/meta.json` says which parts were updated (`parts`, `allPartsUpdated`).
   - A part that fails keeps yesterday's file and adds a `::warning` annotation.
 - **Build locally:** `source ~/.nvm/nvm.sh && node scripts/build.mjs --from <folder with Cardmarket files>`. Set `TCGDEX_DIR` to reuse a TCGdex clone. It takes about 3.5 min and rewrites `data/`.

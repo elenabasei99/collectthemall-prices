@@ -2,8 +2,11 @@ name: Daily prices
 
 on:
   schedule:
-    # Cardmarket publishes its price guide around 01:45 UTC; run a little after.
-    - cron: '20 4 * * *'
+    # Cardmarket publishes its price guide around 01:50 UTC. GitHub often starts scheduled runs hours late (most of
+    # all on the hour), so: one run soon after, and one in the morning in case the first is very late or Cardmarket is.
+    # (A second run with nothing new rebuilds the same prices.)
+    - cron: '17 2 * * *'
+    - cron: '43 7 * * *'
   workflow_dispatch: {}
 
 permissions:
