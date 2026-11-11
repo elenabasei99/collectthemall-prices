@@ -1,6 +1,6 @@
 {
-  "updated": "2026-11-09T02:50:36+0100",
-  "built": "2026-11-10T15:46:14.709Z",
+  "updated": "2026-11-11T02:45:46+0100",
+  "built": "2026-11-11T09:22:43.562Z",
   "onepieceCards": 2890,
   "reprintVersions": 866,
   "sealedProducts": 3863,
@@ -14,14 +14,14 @@
     },
     "One Piece special versions": {
       "ok": true,
-      "versions": 3845,
-      "codes": 2042
+      "versions": 3847,
+      "codes": 2043
     },
     "Japanese Pokémon catalogue": {
       "ok": true,
       "cards": 27951,
-      "cardmarket": 23120,
-      "tcgplayerOnly": 3637
+      "cardmarket": 23121,
+      "tcgplayerOnly": 3628
     },
     "English pictures": {
       "ok": true,
@@ -38,7 +38,7 @@
     },
     "Pokémon cards on Cardmarket only": {
       "ok": true,
-      "cards": 22599
+      "cards": 22635
     },
     "Release days": {
       "ok": true,
