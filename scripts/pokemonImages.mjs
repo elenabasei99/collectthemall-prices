@@ -85,11 +85,16 @@ export function matchEnglishImages(tcgdex, groups, setNames = {}) {
   return { images: out, report };
 }
 
-/** TCGplayer's English catalogue (category 3 on tcgcsv.com) and TCGdex's English cards and sets. */
+/** TCGplayer's English catalogue (category 3 on tcgcsv.com) with its prices, and TCGdex's English cards and sets. */
 export async function downloadEnglish() {
   const groups = (await getJson('https://tcgcsv.com/tcgplayer/3/groups')).results;
   if (!Array.isArray(groups) || groups.length < 150) throw new Error(`tcgcsv: ${groups?.length} English sets`);
-  await pool(groups, 4, async (g) => { g.products = await getJson(`https://tcgcsv.com/tcgplayer/3/${g.groupId}/products`).then((d) => d.results).catch(() => null); });
+  await pool(groups, 4, async (g) => {
+    [g.products, g.prices] = await Promise.all([
+      getJson(`https://tcgcsv.com/tcgplayer/3/${g.groupId}/products`).then((d) => d.results).catch(() => null),
+      getJson(`https://tcgcsv.com/tcgplayer/3/${g.groupId}/prices`).then((d) => d.results).catch(() => []),
+    ]);
+  });
   const missing = groups.filter((g) => !g.products).length;
   if (missing > groups.length / 10) throw new Error(`tcgcsv: ${missing} English sets could not be read`);
   const [cards, sets] = await Promise.all([getJson('https://api.tcgdex.net/v2/en/cards'), getJson('https://api.tcgdex.net/v2/en/sets')]);

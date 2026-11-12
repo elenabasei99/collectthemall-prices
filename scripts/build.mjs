@@ -7,7 +7,7 @@ import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
 import { cloneTcgdex, priceCards, readDataFolder } from './tcgdexPrices.mjs';
-import { matchProducts } from './cardmarketMatch.mjs';
+import { checkJapanese, matchProducts } from './cardmarketMatch.mjs';
 import { expansionLabels, onePieceExtras, pokemonExtras } from './cardmarketExtras.mjs';
 import { tmpdir } from 'node:os';
 
@@ -311,8 +311,13 @@ async function main() {
   }
 
   // Pictures for English (and so Italian) TCGdex cards without one, from TCGplayer. Kept from yesterday on failure.
+  const tpUsd = new Map(); // TCGplayer's English prices (USD, not reverse holo): they tell same-name prints apart below
   try {
     const en = await downloadEnglish();
+    for (const g of en.groups) for (const p of g.prices ?? []) {
+      const v = p.marketPrice ?? p.midPrice;
+      if (v > 0 && !/reverse/i.test(p.subTypeName)) tpUsd.set(p.productId, Math.min(tpUsd.get(p.productId) ?? Infinity, v));
+    }
     const { images, report } = matchEnglishImages(en.cards, en.groups, en.setNames);
     if (Object.keys(images).length < 500) throw new Error(`only ${Object.keys(images).length} pictures`);
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
@@ -327,17 +332,21 @@ async function main() {
   // the app reads one file instead of asking TCGdex card by card. Kept from yesterday if TCGdex's data can't be read.
   try {
     const dirs = cloneTcgdex(process.env.TCGDEX_DIR ?? join(tmpdir(), 'tcgdex-cards-database'));
+    const fixes = JSON.parse(await readFile(new URL('./productFixes.json', import.meta.url), 'utf8')).fixes;
+    const species = JSON.parse(await readFile(new URL('./species.json', import.meta.url), 'utf8')).species;
+    const eur = new Map(pkGuide.priceGuides.map((g) => [g.idProduct, g.avg30 || g.trend]));
+    const jaRows = () => readFile(join(OUT, 'pokemon', 'ja.json'), 'utf8').then((t) => JSON.parse(t).cards).catch(() => []);
     const columns = ['idProduct', 'trend', 'avg30', 'avg', 'trendHolo', 'avg30Holo', 'versions (n normal, h holo, r reverse, f 1st edition)', 'avg7', 'avg1', 'avg7Holo'];
     for (const [name, dir] of [['en', dirs.en], ['asia', dirs.asia]]) {
       let list = await readDataFolder(dir);
-      let fixed = {};
-      // English cards: TCGdex's Cardmarket products checked against Cardmarket's catalogue (Asian cards have Japanese names).
-      if (name === 'en') {
-        const { products, report } = matchProducts(list, pkSingles.products);
-        list = list.map((c) => ({ ...c, product: products.get(c.id) }));
-        fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed.length };
-        console.log(`TCGdex en: Cardmarket products added ${report.added.length}, corrected ${report.changed.length}, removed ${report.removed.length}`);
-      }
+      // TCGdex's Cardmarket products checked: English cards against Cardmarket's catalogue (name and attacks), Asian
+      // ones (Japanese names) against the Japanese catalogue built above; then the products checked by hand.
+      const { products, report } = name === 'en'
+        ? matchProducts(list, pkSingles.products, { usd: tpUsd, eur })
+        : checkJapanese(list, await jaRows(), pkSingles.products, species);
+      list = list.map((c) => ({ ...c, product: fixes[c.id]?.[0] ?? products.get(c.id) }));
+      const fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed?.length ?? 0 };
+      console.log(`TCGdex ${name}: Cardmarket products ${JSON.stringify(fixed)}`);
       const cards = priceCards(list, pkGuide.priceGuides);
       if (Object.keys(cards).length < (name === 'en' ? 15000 : 8000)) throw new Error(`only ${Object.keys(cards).length} ${name} cards`);
       await mkdir(join(OUT, 'pokemon'), { recursive: true });

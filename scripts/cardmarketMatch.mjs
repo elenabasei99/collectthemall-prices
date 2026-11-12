@@ -36,7 +36,9 @@ export function nameAndMoves(text) {
     for (; i < text.length; i++) { if (text[i] === '[') depth++; else if (text[i] === ']' && --depth === 0) break; }
     for (const m of text.slice(start, i).matchAll(/\bname\s*:\s*\{([^}]*)\}/g)) { const n = en(m[1]); if (n) moves.push(n); }
   }
-  return { name, moves, special: /\benergyType\s*:\s*["']Special["']/.test(text) };
+  const tcgplayer = Number(/\btcgplayer\s*:\s*(\d+)/.exec(text)?.[1]) || null;
+  const dexIds = (/\bdexId\s*:\s*\[([^\]]*)\]/.exec(text)?.[1] ?? '').split(',').map(Number).filter(Boolean);
+  return { name, moves, special: /\benergyType\s*:\s*["']Special["']/.test(text), tcgplayer, dexIds };
 }
 
 /** How well a product fits a card: 0 another card (or the same name with other attacks), 0.5 to 1 as more attacks agree. */
@@ -65,10 +67,11 @@ function arrangements(items, k) {
 }
 
 /**
- * cards: TCGdex cards [{ id, set, localId, name, moves, product }]; products: Cardmarket singles [{ idProduct, name, idExpansion }].
+ * cards: TCGdex cards [{ id, set, localId, name, moves, product, tcgplayer? }]; products: Cardmarket singles
+ * [{ idProduct, name, idExpansion }]; usd: TCGplayer productId → price, eur: idProduct → Cardmarket price (optional).
  * Returns id → idProduct (null when no product is certain) and what changed.
  */
-export function matchProducts(cards, products) {
+export function matchProducts(cards, products, { usd = new Map(), eur = new Map() } = {}) {
   const byId = new Map(), byName = new Map(), byExp = new Map();
   for (const p of products) {
     const prod = { id: p.idProduct, exp: p.idExpansion, key: productKey(p.name) };
@@ -183,6 +186,20 @@ export function matchProducts(cards, products) {
       }
     }
 
+    // Prints with the same name and attacks whose prices differ clearly (a holo H-card and its plain print, an SL and
+    // the regular card) on both sites: the dearer print on TCGplayer gets the dearer product on Cardmarket.
+    const prints = new Map();
+    for (const c of setCards) { const p = byId.get(pick.get(c.id)); if (p && good(fit(c, p))) prints.set(keyText(c.key), [...(prints.get(keyText(c.key)) ?? []), c]); }
+    for (const cs of prints.values()) {
+      const ps = cs.map((c) => pick.get(c.id));
+      if (cs.length < 2 || new Set(ps).size < cs.length) continue;
+      const byUsd = [...cs].sort((a, b) => (usd.get(a.tcgplayer) ?? 0) - (usd.get(b.tcgplayer) ?? 0));
+      const byEur = [...ps].sort((a, b) => (eur.get(a) ?? 0) - (eur.get(b) ?? 0));
+      const apart = (vals) => vals.every((v) => v > 0) && vals.slice(1).every((v, i) => v >= 2 * vals[i]);
+      if (!apart(byUsd.map((c) => usd.get(c.tcgplayer))) || !apart(byEur.map((p) => eur.get(p)))) continue;
+      byUsd.forEach((c, i) => pick.set(c.id, byEur[i]));
+    }
+
     // A product two cards claim stays with the cards it fits. Another card's product goes; a namesake's only when
     // another claimant fits it (attack names TCGdex and Cardmarket translate differently, in the newest sets).
     const claims = new Map();
@@ -202,6 +219,43 @@ export function matchProducts(cards, products) {
       else if (now == null) report.removed.push([c.id, was]);
       else report.changed.push([c.id, was, now]);
     }
+  }
+  return { products: out, report };
+}
+
+/**
+ * Japanese TCGdex cards (names in Japanese, so not matched by name) checked against the Japanese catalogue's match
+ * (ja.json: TCGplayer's English names and attacks matched to Cardmarket). Where they differ:
+ * - the same card in another expansion (30th Celebration: TCGdex names the Simplified Chinese print): the catalogue's;
+ * - two different cards: the one named after the card's Pokémon (Pokédex number), else the one in the expansion the
+ *   set's cards are in; trainers stay as TCGdex has them (the catalogue pairs by number, which can be shifted).
+ * cards: [{ id, set, product, dexIds }], jaRows: ja.json rows, species: [[dex, en, …]].
+ */
+export function checkJapanese(cards, jaRows, products, species) {
+  const byId = new Map(products.map((p) => [p.idProduct, { exp: p.idExpansion, key: productKey(p.name) }]));
+  const theirs = new Map();
+  for (const r of jaRows) if (r[7] && r[8]?.[0] && (!theirs.has(r[7]) || !r[4])) theirs.set(r[7], r[8][0]); // regular version first
+  const enName = new Map(species.map((s) => [s[0], norm(s[1])]));
+  const main = new Map(); // set → the expansion the catalogue finds most of its cards in
+  for (const c of cards) if (byId.has(theirs.get(c.id))) {
+    const m = main.get(c.set) ?? new Map(), exp = byId.get(theirs.get(c.id)).exp;
+    m.set(exp, (m.get(exp) ?? 0) + 1); main.set(c.set, m);
+  }
+  const mainOf = (set) => [...(main.get(set) ?? [])].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const out = new Map(), report = { added: [], changed: [] };
+  for (const c of cards) {
+    const t = c.product ?? null, j = theirs.get(c.id) ?? null;
+    let now = t;
+    if (j && !t) now = j;
+    else if (j && t !== j && byId.has(t) && byId.has(j)) {
+      const pt = byId.get(t), pj = byId.get(j);
+      const named = (p) => (c.dexIds ?? []).some((d) => enName.get(d) && p.key.name.includes(enName.get(d)));
+      if (keyText(pt.key) === keyText(pj.key)) { if (pt.exp !== pj.exp) now = j; }
+      else if (named(pj) !== named(pt)) now = named(pj) ? j : t;
+      else if (pj.exp === mainOf(c.set) && pt.exp !== pj.exp) now = j;
+    }
+    out.set(c.id, now);
+    if (now !== t) (t == null ? report.added : report.changed).push(t == null ? [c.id, now] : [c.id, t, now]);
   }
   return { products: out, report };
 }

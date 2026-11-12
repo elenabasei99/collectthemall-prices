@@ -1,0 +1,11 @@
+{
+  "about": "Cardmarket products checked by hand, for TCGdex cards the automatic check can't settle (Japanese trainers, attacks only TCGdex names in Japanese). TCGdex id → [idProduct, how it was checked]. Applied last, to the English and the Asian file.",
+  "fixes": {
+    "M6-098": [900132, "ポケモンキャッチャー is Pokémon Catcher (TCGdex had Custom Vest)"],
+    "M6-099": [900131, "とくちゅうチョッキ is Custom Vest (TCGdex had Pokémon Catcher)"],
+    "SV8a-190": [803304, "コルサ is Brassius (TCGdex had Atticus)"],
+    "SV8a-191": [803303, "シュウメイ is Atticus (TCGdex had Brassius)"],
+    "SV1a-027": [701082, "Quaxly with ジェルかけ, Apply Gel (TCGdex had the Reckless Charge one)"],
+    "SV1a-028": [701081, "Quaxly with とつげき, Reckless Charge (TCGdex had the Apply Gel one)"]
+  }
+}

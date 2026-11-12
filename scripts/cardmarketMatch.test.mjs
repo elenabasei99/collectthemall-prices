@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchProducts, nameAndMoves, productKey } from './cardmarketMatch.mjs';
+import { checkJapanese, matchProducts, nameAndMoves, productKey } from './cardmarketMatch.mjs';
 
 const P = (idProduct, name, idExpansion = 1) => ({ idProduct, name, idExpansion });
 const C = (set, localId, name, moves, product = null, extra = {}) => ({ id: `${set}-${localId}`, set, localId, name, moves, product, ...extra });
@@ -17,7 +17,7 @@ test("Cardmarket names: attacks in the last brackets, Nidoran's sex and Unown's 
 test('TCGdex card files: English name, abilities and attacks, special energy', () => {
   const text = `const card = { name: { en: "Latias ☆", fr: "Latias ☆" }, abilities: [{ type: "Poke-Power", name: { en: "Healing Light" } }],
     attacks: [{ cost: ["Fire"], name: { en: "Shooting Star", fr: "Étoile filante" }, effect: { en: "…" } }], weaknesses: [{ type: "Colorless" }] }`;
-  assert.deepEqual(nameAndMoves(text), { name: 'Latias ☆', moves: ['Healing Light', 'Shooting Star'], special: false });
+  assert.deepEqual(nameAndMoves(text), { name: 'Latias ☆', moves: ['Healing Light', 'Shooting Star'], special: false, tcgplayer: null, dexIds: [] });
   assert.equal(nameAndMoves('{ name: { en: "Darkness Energy" }, energyType: "Special" }').special, true);
 });
 
@@ -79,4 +79,50 @@ test("sets Cardmarket doesn't sell (TCG Pocket) are left as TCGdex has them", ()
 test('what changed is reported', () => {
   const { report } = matchProducts([C('ex8', '105', 'Latias ☆', ['Healing Light', 'Shooting Star']), C('ex8', '1', 'Hariyama ex', ['Commanding Aura', 'Knock Off'], 14)], deoxys);
   assert.deepEqual(report, { added: [['ex8-105', 13]], changed: [['ex8-1', 14, 10]], removed: [] });
+});
+
+test('same-name prints whose prices differ clearly on both sites: the dearer print gets the dearer product', () => {
+  // Aquapolis: the holo H01 and the plain 1 are both "Ampharos [Conductivity | Thunder Wave]"; TCGdex had them swapped.
+  const products = [P(1, 'Ampharos [Conductivity | Thunder Wave]'), P(2, 'Arcanine [Fire Spin]'), P(40, 'Ampharos [Conductivity | Thunder Wave]')];
+  const cards = [
+    C('ecard2', '1', 'Ampharos', ['Conductivity', 'Thunder Wave'], 40, { tcgplayer: 501 }),
+    C('ecard2', 'H01', 'Ampharos', ['Conductivity', 'Thunder Wave'], 1, { tcgplayer: 502 }),
+    C('ecard2', '2', 'Arcanine', ['Fire Spin'], 2),
+  ];
+  const usd = new Map([[501, 30], [502, 350]]);
+  assert.deepEqual(run(cards, products), { 'ecard2-1': 40, 'ecard2-H01': 1, 'ecard2-2': 2 }); // without prices: as TCGdex
+  const eur = new Map([[1, 15], [40, 68]]);
+  assert.deepEqual(Object.fromEntries(matchProducts(cards, products, { usd, eur }).products), { 'ecard2-1': 1, 'ecard2-H01': 40, 'ecard2-2': 2 });
+  // less than twice apart on one site: left as it is
+  assert.equal(matchProducts(cards, products, { usd, eur: new Map([[1, 50], [40, 68]]) }).products.get('ecard2-1'), 40);
+});
+
+test("Japanese cards: the Japanese print instead of the Chinese one, the product named after the card's Pokémon; trainers kept", () => {
+  const products = [
+    P(10, 'Pikachu [Nap]', 6602), P(11, 'Pikachu [Nap]', 6603), // 30th Celebration: Japanese and Simplified Chinese
+    P(20, 'Swirlix [Flop | Tackle]', 5094), P(21, 'Slurpuff [Draining Kiss | Magical Shot]', 5094),
+    P(30, 'Training Court', 4360), P(31, 'Power Tablet', 4360),
+  ];
+  const cards = [
+    { id: 'M6a-021', set: 'M6a', product: 11, dexIds: [25] },
+    { id: 'S11-047', set: 'S11', product: 21, dexIds: [684] }, // ペロッパフ, Swirlix: TCGdex had Slurpuff
+    { id: 'S8-126', set: 'S8', product: 30, dexIds: [] }, // トレーニングコート: TCGdex right, the catalogue shifted
+    { id: 'S8-200', set: 'S8', product: null, dexIds: [] },
+  ];
+  const ja = [[1, 0, '021', 'Pikachu', '', '', 25, 'M6a-021', [10]], [2, 0, '047', 'Swirlix', '', '', 684, 'S11-047', [20]],
+    [3, 0, '126', 'Power Tablet', '', '', null, 'S8-126', [31]], [4, 0, '200', 'Power Tablet', '', '', null, 'S8-200', [31]]];
+  const species = [[25, 'Pikachu'], [684, 'Swirlix'], [685, 'Slurpuff']];
+  const { products: out, report } = checkJapanese(cards, ja, products, species);
+  assert.deepEqual(Object.fromEntries(out), { 'M6a-021': 10, 'S11-047': 20, 'S8-126': 30, 'S8-200': 31 });
+  assert.deepEqual(report, { added: [['S8-200', 31]], changed: [['M6a-021', 11, 10], ['S11-047', 21, 20]] });
+});
+
+test('hand-checked products: every entry is a TCGdex id with a product number and how it was checked', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { fixes } = JSON.parse(await readFile(new URL('./productFixes.json', import.meta.url), 'utf8'));
+  for (const [id, [product, why]] of Object.entries(fixes)) {
+    assert.match(id, /^[\w.]+-[\w.]+$/);
+    assert.ok(Number.isInteger(product) && product > 0, id);
+    assert.ok(why.length > 5, id);
+  }
 });
