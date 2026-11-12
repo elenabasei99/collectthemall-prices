@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { nameAndMoves } from './cardmarketMatch.mjs';
 
 const num = (x) => (typeof x === 'number' && x > 0 ? Math.round(x * 100) / 100 : null);
 
@@ -63,8 +64,8 @@ export async function readDataFolder(root) {
       if (!setId) continue;
       for (const c of await readdir(setDir)) {
         if (!c.endsWith('.ts')) continue;
-        const parsed = parseCardFile(await readFile(join(setDir, c), 'utf8'));
-        cards.push({ id: `${setId}-${c.slice(0, -3)}`, ...parsed });
+        const text = await readFile(join(setDir, c), 'utf8');
+        cards.push({ id: `${setId}-${c.slice(0, -3)}`, set: setId, localId: c.slice(0, -3), ...parseCardFile(text), ...nameAndMoves(text) });
       }
     }
   }

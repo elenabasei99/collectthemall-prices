@@ -7,6 +7,7 @@ import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
 import { cloneTcgdex, priceCards, readDataFolder } from './tcgdexPrices.mjs';
+import { matchProducts } from './cardmarketMatch.mjs';
 import { expansionLabels, onePieceExtras, pokemonExtras } from './cardmarketExtras.mjs';
 import { tmpdir } from 'node:os';
 
@@ -328,12 +329,21 @@ async function main() {
     const dirs = cloneTcgdex(process.env.TCGDEX_DIR ?? join(tmpdir(), 'tcgdex-cards-database'));
     const columns = ['idProduct', 'trend', 'avg30', 'avg', 'trendHolo', 'avg30Holo', 'versions (n normal, h holo, r reverse, f 1st edition)', 'avg7', 'avg1', 'avg7Holo'];
     for (const [name, dir] of [['en', dirs.en], ['asia', dirs.asia]]) {
-      const cards = priceCards(await readDataFolder(dir), pkGuide.priceGuides);
+      let list = await readDataFolder(dir);
+      let fixed = {};
+      // English cards: TCGdex's Cardmarket products checked against Cardmarket's catalogue (Asian cards have Japanese names).
+      if (name === 'en') {
+        const { products, report } = matchProducts(list, pkSingles.products);
+        list = list.map((c) => ({ ...c, product: products.get(c.id) }));
+        fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed.length };
+        console.log(`TCGdex en: Cardmarket products added ${report.added.length}, corrected ${report.changed.length}, removed ${report.removed.length}`);
+      }
+      const cards = priceCards(list, pkGuide.priceGuides);
       if (Object.keys(cards).length < (name === 'en' ? 15000 : 8000)) throw new Error(`only ${Object.keys(cards).length} ${name} cards`);
       await mkdir(join(OUT, 'pokemon'), { recursive: true });
       await writeFile(join(OUT, 'pokemon', `tcgdex-${name}.json`), JSON.stringify({ updated, columns, cards }));
       console.log(`TCGdex ${name}: ${Object.keys(cards).length} cards priced`);
-      done(`Pokémon prices (${name})`, { cards: Object.keys(cards).length });
+      done(`Pokémon prices (${name})`, { cards: Object.keys(cards).length, ...fixed });
     }
   } catch (err) {
     keptPart('Pokémon prices', err);
@@ -345,9 +355,11 @@ async function main() {
     const read = async (f) => JSON.parse(await readFile(join(OUT, 'pokemon', f), 'utf8'));
     for (const f of ['tcgdex-en.json', 'tcgdex-asia.json']) for (const r of Object.values((await read(f)).cards)) if (r[0]) covered.add(r[0]);
     for (const r of (await read('ja.json')).cards) if (r[8]) covered.add(r[8][0]);
+    // A product listed here stays listed, even once a catalogue covers it: a card saved from the search keeps its price.
+    const letters = ['_', '0', ...'abcdefghijklmnopqrstuvwxyz'];
+    for (const l of letters) try { for (const r of (await read(`cm/${l}.json`)).cards) covered.delete(r[0]); } catch { /* first run */ }
     const extras = pokemonExtras(pkSingles.products, pkGuide.priceGuides, covered, priceRow);
     await mkdir(join(OUT, 'pokemon', 'cm'), { recursive: true });
-    const letters = ['_', '0', ...'abcdefghijklmnopqrstuvwxyz'];
     const labels = expansionLabels(pkSealed.products);
     for (const l of letters) {
       const cards = extras[l] ?? [];
