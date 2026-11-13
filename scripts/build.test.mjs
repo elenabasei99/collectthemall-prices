@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appIds, buildOnePiece, buildReprints, buildSealed, indexOnePiece, setPrefixes } from './build.mjs';
+import { appIds, buildOnePiece, buildReprints, buildSealed, indexOnePiece, orderVersions, setPrefixes } from './build.mjs';
 
 test('One Piece versions are split by English and Japanese expansion, in product order', () => {
   const singles = [
@@ -110,4 +110,32 @@ test('reprint versions are ranked by a steady price: a trend far from the 30-day
   const { byId } = buildReprints(optcg, guide, indexOnePiece(singles, [{ idExpansion: 3, name: 'The Best Booster' }]));
   assert.equal(byId['PRB-01|OP01-006_p5'].en[0], 30);
   assert.equal(byId['PRB-01|OP01-006_p3'].en[0], 31);
+});
+
+test('One Piece versions: paired with OPTCG by price, whatever order Cardmarket listed them in', () => {
+  const row = (id, eur) => [id, eur, eur, eur, eur, eur];
+  const optcg = { 'OP-02': [
+    { card_set_id: 'OP02-026', card_image_id: 'OP02-026', market_price: 0.33 },
+    { card_set_id: 'OP02-026', card_image_id: 'OP02-026_p1', market_price: 122.66 },
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 3.26 },
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013_p1', market_price: 44.31 },
+    // OPTCG gives the Parallel the normal card's picture code
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 900 },
+  ], 'ST-01': [{ card_set_id: 'ST01-002', card_image_id: 'ST01-002', market_price: 1.08 }] };
+  const cards = {
+    // the alternate art was listed first
+    'OP02-026': { en: [row(696661, 109.23), row(700865, 0.14)] },
+    // a print OPTCG doesn't list (2 €): left after the two versions
+    'OP02-013': { en: [row(700493, 67.87), row(700821, 2.1), row(700823, 1.9)] },
+    // no OPTCG for this card: yesterday's order of the same products
+    'OP09-001': { en: [row(2, 50), row(1, 0.5)] },
+    // only the normal card listed: the cheapest product
+    'ST01-002': { en: [row(690967, 6.29), row(690968, 0.05)] },
+  };
+  const previous = { 'OP09-001': { en: [row(1, 0.4), row(2, 40)] } };
+  assert.equal(orderVersions(cards, optcg, previous), 4);
+  assert.deepEqual(cards['ST01-002'].en.map((r) => r[0]), [690968, 690967]);
+  assert.deepEqual(cards['OP02-026'].en.map((r) => r[0]), [700865, 696661]);
+  assert.deepEqual(cards['OP02-013'].en.map((r) => r[0]), [700821, 700493, 700823]);
+  assert.deepEqual(cards['OP09-001'].en.map((r) => [r[0], r[1]]), [[1, 0.5], [2, 50]]);
 });

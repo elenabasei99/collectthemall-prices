@@ -104,6 +104,68 @@ export function buildOnePiece(singles, nonsingles, guide, index = indexOnePiece(
   return cards;
 }
 
+/** A product's price for ranking: its trend, unless far from the 30-day average (it jumps for cards that rarely sell). */
+function steadyValue(g) {
+  const tr = num(g?.trend), a30 = num(g?.avg30);
+  return (tr != null && a30 != null && (tr < a30 / 3 || tr > a30 * 3) ? a30 : tr ?? a30) ?? num(g?.low);
+}
+
+/**
+ * Which Cardmarket product is which version of a set's own cards. Cardmarket names them all the same, and its product
+ * order isn't the version order: alternate arts are often listed before the normal card (OP02: the parallels were added
+ * while the set was previewed). OPTCG has a (US) market price for each version: the versions and products are paired
+ * in price order, each version with the product closest in price when Cardmarket sells more versions than OPTCG lists
+ * (pre-release, promo prints…; those stay after, as before). A card OPTCG lists only once (starter decks) gets the
+ * cheapest product. Row i then is version _p{i}, as the app reads it.
+ * Without OPTCG for a card, yesterday's order is kept when the products are the same; otherwise Cardmarket's order.
+ * Changes `cards` in place; returns how many cards were reordered.
+ */
+export function orderVersions(cards, optcgSets, previous = {}) {
+  const known = new Map();
+  for (const [setId, list] of Object.entries(optcgSets)) for (const c of list ?? []) {
+    if (!setPrefixes(setId).some((p) => c.card_set_id.startsWith(`${p}-`))) continue; // reprints: see buildReprints
+    const m = known.get(c.card_set_id) ?? new Map();
+    // OPTCG sometimes gives two versions the same picture code (OP13-084: the normal card and its Parallel): the cheaper
+    // one is the version the code stands for
+    const usd = num(c.market_price), had = m.get(c.card_image_id);
+    if (!had || (usd != null && (had.usd == null || usd < had.usd))) m.set(c.card_image_id, { v: versionOf(c.card_image_id), usd });
+    known.set(c.card_set_id, m);
+  }
+  // a row's price for pairing: [idProduct, trend, avg30, low, …]
+  const eur = (r) => steadyValue({ trend: r[1], avg30: r[2], low: r[3] });
+  const gap = (r, usd) => { const e = eur(r); return e == null ? 1 : Math.abs(Math.log(Math.max(e, 0.01)) - Math.log(Math.max(usd, 0.01))); };
+  let reordered = 0;
+  for (const [code, langs] of Object.entries(cards)) for (const [lang, rows] of Object.entries(langs)) {
+    if (rows.length < 2) continue;
+    const vs = [...(known.get(code)?.values() ?? [])].sort((a, b) => a.v - b.v);
+    let next = null;
+    if (vs.length === 1) {
+      // only the normal card listed (starter decks): it is the cheapest product; the others are special prints
+      const cheapest = [...rows].sort((a, b) => (eur(a) ?? Infinity) - (eur(b) ?? Infinity) || a[0] - b[0])[0];
+      next = [cheapest, ...rows.filter((r) => r !== cheapest)];
+    } else if (vs.length >= 2 && vs.length <= rows.length && vs.every((x, i) => x.v === i && x.usd != null)) {
+      const byUsd = [...vs].sort((a, b) => a.usd - b.usd || a.v - b.v);
+      const byEur = [...rows].sort((a, b) => (eur(a) ?? Infinity) - (eur(b) ?? Infinity) || a[0] - b[0]);
+      // the cheapest-to-dearest pairing that keeps prices closest (one product each; all of them when the counts match)
+      const n = byUsd.length, m = byEur.length;
+      const cost = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(Infinity));
+      for (let j = 0; j <= m; j++) cost[0][j] = 0;
+      for (let i = 1; i <= n; i++) for (let j = i; j <= m; j++) cost[i][j] = Math.min(cost[i][j - 1], cost[i - 1][j - 1] + gap(byEur[j - 1], byUsd[i - 1].usd));
+      next = new Array(n);
+      for (let i = n, j = m; i > 0; j--) if (cost[i][j] !== cost[i][j - 1]) { next[byUsd[i - 1].v] = byEur[j - 1]; i--; }
+      const used = new Set(next);
+      next.push(...rows.filter((r) => !used.has(r)));
+    } else if (!vs.length) {
+      // no OPTCG today: yesterday's pairing, if it was of the same products
+      const before = previous[code]?.[lang]?.map((r) => r[0]);
+      const ids = rows.map((r) => r[0]);
+      if (before?.length === ids.length && before.every((id) => ids.includes(id))) next = before.map((id) => rows.find((r) => r[0] === id));
+    }
+    if (next && next.some((r, i) => r !== rows[i])) { langs[lang] = next; reordered++; }
+  }
+  return reordered;
+}
+
 /* ------------------------------------------------------------------ reprints (PRB, Extra Boosters, special cards, decks) */
 
 /** The card-code prefixes of an OPTCG set: "OP-05" → OP05, "PRB-01" → PRB01, "OP14-EB04" → OP14 and EB04. */
@@ -153,12 +215,7 @@ const byNumber = (a, b) => (a === b ? 0 : a === Infinity ? 1 : b === Infinity ? 
  */
 export function buildReprints(optcgSets, guide, index) {
   const price = new Map(guide.map((g) => [g.idProduct, g]));
-  // Ranked by trend, unless it is far from the 30-day average (it jumps for cards that rarely sell): then the average.
-  const value = (id) => {
-    const g = price.get(id); const tr = num(g?.trend), a30 = num(g?.avg30);
-    const steady = tr != null && a30 != null && (tr < a30 / 3 || tr > a30 * 3) ? a30 : tr ?? a30;
-    return steady ?? num(g?.low) ?? Infinity;
-  };
+  const value = (id) => steadyValue(price.get(id)) ?? Infinity;
   const { byExp, main } = index;
   const byId = {};
   const report = { sets: 0, matched: 0, unmatched: [], noExpansion: [] };
@@ -259,6 +316,8 @@ async function main() {
   try { optcgSets = await loadOptcgSets(); } catch (err) { optcgError = err; }
   const available = Object.fromEntries(Object.entries(optcgSets).filter(([, list]) => list));
   const { byId, report } = buildReprints(available, opGuide.priceGuides, index);
+  const reordered = orderVersions(onepiece, available, previous.cards);
+  console.log(`One Piece versions: ${reordered} cards put in version order by price.`);
   const guidePrice = new Map(opGuide.priceGuides.map((g) => [g.idProduct, g]));
   const kept = new Set();
   for (const [key, langs] of Object.entries(previous.byId ?? {})) {
