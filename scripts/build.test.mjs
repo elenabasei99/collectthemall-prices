@@ -115,13 +115,13 @@ test('reprint versions are ranked by a steady price: a trend far from the 30-day
 test('One Piece versions: paired with OPTCG by price, whatever order Cardmarket listed them in', () => {
   const row = (id, eur) => [id, eur, eur, eur, eur, eur];
   const optcg = { 'OP-02': [
-    { card_set_id: 'OP02-026', card_image_id: 'OP02-026', market_price: 0.33 },
-    { card_set_id: 'OP02-026', card_image_id: 'OP02-026_p1', market_price: 122.66 },
-    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 3.26 },
-    { card_set_id: 'OP02-013', card_image_id: 'OP02-013_p1', market_price: 44.31 },
+    { card_set_id: 'OP02-026', card_image_id: 'OP02-026', market_price: 0.33, card_name: 'Sanji' },
+    { card_set_id: 'OP02-026', card_image_id: 'OP02-026_p1', market_price: 122.66, card_name: 'Sanji (Alternate Art)' },
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 3.26, card_name: 'Ace' },
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013_p1', market_price: 44.31, card_name: 'Ace (Alternate Art)' },
     // OPTCG gives the Parallel the normal card's picture code
-    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 900 },
-  ], 'ST-01': [{ card_set_id: 'ST01-002', card_image_id: 'ST01-002', market_price: 1.08 }] };
+    { card_set_id: 'OP02-013', card_image_id: 'OP02-013', market_price: 900, card_name: 'Ace (Parallel)' },
+  ], 'ST-01': [{ card_set_id: 'ST01-002', card_image_id: 'ST01-002', market_price: 1.08, card_name: 'Usopp' }] };
   const cards = {
     // the alternate art was listed first
     'OP02-026': { en: [row(696661, 109.23), row(700865, 0.14)] },
@@ -133,9 +133,30 @@ test('One Piece versions: paired with OPTCG by price, whatever order Cardmarket 
     'ST01-002': { en: [row(690967, 6.29), row(690968, 0.05)] },
   };
   const previous = { 'OP09-001': { en: [row(1, 0.4), row(2, 40)] } };
-  assert.equal(orderVersions(cards, optcg, previous), 4);
+  const byId = {};
+  assert.equal(orderVersions(cards, optcg, previous, byId), 4);
+  // the Parallel sharing the normal card's picture code: the product left over, under its own app id
+  assert.deepEqual(Object.keys(byId), ['OP-02|OP02-013~parallel']);
+  assert.equal(byId['OP-02|OP02-013~parallel'].en[0], 700823);
   assert.deepEqual(cards['ST01-002'].en.map((r) => r[0]), [690968, 690967]);
   assert.deepEqual(cards['OP02-026'].en.map((r) => r[0]), [700865, 696661]);
   assert.deepEqual(cards['OP02-013'].en.map((r) => r[0]), [700821, 700493, 700823]);
   assert.deepEqual(cards['OP09-001'].en.map((r) => [r[0], r[1]]), [[1, 0.5], [2, 50]]);
+});
+
+test('One Piece expansions: a set\'s own wins over a promo expansion holding more of its cards', () => {
+  const p = (idProduct, code, idExpansion) => ({ idProduct, name: `X (${code})`, idExpansion });
+  const singles = [
+    // Japanese promo packs: 3 ST01 cards among many others
+    ...[1, 2, 3].map((i) => p(i, `ST01-00${i}`, 10)), ...[4, 5, 6, 7, 8, 9].map((i) => p(i, `OP0${i}-001`, 10)),
+    // the Japanese starter deck: 2 ST01 cards, nothing else
+    p(20, 'ST01-001', 11), p(21, 'ST01-002', 11),
+    // an English deck sold only in Asia, next to the English one
+    p(30, 'ST02-001', 12), p(31, 'ST02-002', 12), p(40, 'ST02-001', 13), p(41, 'ST02-002', 13),
+  ];
+  const nonsingles = [{ idExpansion: 10, name: 'DON!! Card Pack (Non-English)' }, { idExpansion: 11, name: 'Starter Deck (Non-English)' },
+    { idExpansion: 12, name: 'Starter Deck (Asia Region Legal)' }, { idExpansion: 13, name: 'Starter Deck' }];
+  const { main } = indexOnePiece(singles, nonsingles);
+  assert.equal(main.get('ST01|ja').exp, 11);
+  assert.equal(main.get('ST02|en').exp, 13);
 });

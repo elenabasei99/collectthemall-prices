@@ -43,7 +43,7 @@ const CODE = /\(([A-Z]{1,4}\d{0,2}-\d{2,3})\)/;
  * One Piece singles: Cardmarket names every version of a card the same ("Shanks (OP01-120)"), in separate expansions
  * for English and for Japanese ("Non-English") prints. For each card code we find the main English and Japanese
  * expansion of its set (the expansion whose cards mostly carry that set's prefix, told apart by the "(Non-English)"
- * boxes in it) and list the versions in Cardmarket's product order: normal, then parallels.
+ * boxes in it; Asia-only English expansions are left out) and list the versions in Cardmarket's product order: normal, then parallels.
  */
 export function indexOnePiece(singles, nonsingles) {
   const boxNames = new Map();
@@ -51,6 +51,8 @@ export function indexOnePiece(singles, nonsingles) {
   const kindOf = (exp) => {
     const names = boxNames.get(exp) ?? [];
     if (names.some((n) => /pre-errata/i.test(n))) return 'skip';
+    // English prints sold only in Asia: a market of their own, not the set's English expansion
+    if (names.length && names.every((n) => /asia region legal/i.test(n))) return 'skip';
     if (names.some((n) => /non-english/i.test(n))) return 'ja';
     return 'en';
   };
@@ -64,18 +66,21 @@ export function indexOnePiece(singles, nonsingles) {
     const codes = byExp.get(p.idExpansion);
     codes.set(code, [...(codes.get(code) ?? []), p.idProduct]);
   }
-  // Main expansions per prefix and language: most products with that prefix wins.
+  // Main expansions per prefix and language: many products with that prefix, and mostly that prefix (count × share).
+  // A promo expansion mixing many sets (Japanese DON!! and participation packs: 20 ST01 cards, all special prints) must
+  // not win over the set's own (the Japanese Straw Hat Crew deck: 18 ST01 cards, nothing else).
   const main = new Map();
   for (const [exp, codes] of byExp) {
     const kind = kindOf(exp);
     if (kind === 'skip') continue;
     const prefixes = new Map();
-    for (const [code, ids] of codes) prefixes.set(code.split('-')[0], (prefixes.get(code.split('-')[0]) ?? 0) + ids.length);
+    let total = 0;
+    for (const [code, ids] of codes) { prefixes.set(code.split('-')[0], (prefixes.get(code.split('-')[0]) ?? 0) + ids.length); total += ids.length; }
     for (const [prefix, n] of prefixes) {
       if (prefix === 'P') continue;
-      const key = `${prefix}|${kind}`;
+      const key = `${prefix}|${kind}`, score = (n * n) / total;
       const cur = main.get(key);
-      if (!cur || n > cur.n) main.set(key, { exp, n });
+      if (!cur || score > cur.score) main.set(key, { exp, n, score });
     }
   }
   return { byExp, main, kindOf };
@@ -120,16 +125,22 @@ function steadyValue(g) {
  * Without OPTCG for a card, yesterday's order is kept when the products are the same; otherwise Cardmarket's order.
  * Changes `cards` in place; returns how many cards were reordered.
  */
-export function orderVersions(cards, optcgSets, previous = {}) {
+export function orderVersions(cards, optcgSets, previous = {}, byId = {}) {
   const known = new Map();
-  for (const [setId, list] of Object.entries(optcgSets)) for (const c of list ?? []) {
+  // OPTCG sometimes gives two versions the same picture code (OP13-084: the normal card and its Parallel). The cheaper
+  // one is the version the code stands for; the other ("twin") gets the closest left-over product, under its own app id
+  // in byId (the app tells them apart by id, as it does reprints).
+  const twins = new Map();
+  for (const [setId, list] of Object.entries(optcgSets)) for (const { id, card: c } of appIds(list ?? [])) {
     if (!setPrefixes(setId).some((p) => c.card_set_id.startsWith(`${p}-`))) continue; // reprints: see buildReprints
     const m = known.get(c.card_set_id) ?? new Map();
-    // OPTCG sometimes gives two versions the same picture code (OP13-084: the normal card and its Parallel): the cheaper
-    // one is the version the code stands for
-    const usd = num(c.market_price), had = m.get(c.card_image_id);
-    if (!had || (usd != null && (had.usd == null || usd < had.usd))) m.set(c.card_image_id, { v: versionOf(c.card_image_id), usd });
     known.set(c.card_set_id, m);
+    const entry = { v: versionOf(c.card_image_id), usd: num(c.market_price), setId, id };
+    const had = m.get(c.card_image_id);
+    if (!had) { m.set(c.card_image_id, entry); continue; }
+    const [keep, twin] = entry.usd != null && (had.usd == null || entry.usd < had.usd) ? [entry, had] : [had, entry];
+    m.set(c.card_image_id, keep);
+    if (twin.usd != null) twins.set(c.card_set_id, [...(twins.get(c.card_set_id) ?? []), twin]);
   }
   // a row's price for pairing: [idProduct, trend, avg30, low, …]
   const eur = (r) => steadyValue({ trend: r[1], avg30: r[2], low: r[3] });
@@ -160,6 +171,15 @@ export function orderVersions(cards, optcgSets, previous = {}) {
       const before = previous[code]?.[lang]?.map((r) => r[0]);
       const ids = rows.map((r) => r[0]);
       if (before?.length === ids.length && before.every((id) => ids.includes(id))) next = before.map((id) => rows.find((r) => r[0] === id));
+    }
+    if (next && vs.length) {
+      const left = next.slice(vs.length);
+      for (const t of (twins.get(code) ?? []).sort((a, b) => a.usd - b.usd)) {
+        const best = left.sort((a, b) => gap(a, t.usd) - gap(b, t.usd))[0];
+        if (!best) break;
+        left.splice(left.indexOf(best), 1);
+        (byId[`${t.setId}|${t.id}`] ??= {})[lang] = best;
+      }
     }
     if (next && next.some((r, i) => r !== rows[i])) { langs[lang] = next; reordered++; }
   }
@@ -316,7 +336,7 @@ async function main() {
   try { optcgSets = await loadOptcgSets(); } catch (err) { optcgError = err; }
   const available = Object.fromEntries(Object.entries(optcgSets).filter(([, list]) => list));
   const { byId, report } = buildReprints(available, opGuide.priceGuides, index);
-  const reordered = orderVersions(onepiece, available, previous.cards);
+  const reordered = orderVersions(onepiece, available, previous.cards, byId);
   console.log(`One Piece versions: ${reordered} cards put in version order by price.`);
   const guidePrice = new Map(opGuide.priceGuides.map((g) => [g.idProduct, g]));
   const kept = new Set();
