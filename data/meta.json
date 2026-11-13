@@ -1,6 +1,6 @@
 {
   "updated": "2026-11-13T02:44:21+0100",
-  "built": "2026-11-13T09:29:50.113Z",
+  "built": "2026-11-13T15:40:50.904Z",
   "onepieceCards": 2890,
   "reprintVersions": 866,
   "sealedProducts": 3868,
@@ -30,14 +30,14 @@
     },
     "Pokémon prices (en)": {
       "ok": true,
-      "cards": 21454,
-      "productsAdded": 752,
-      "productsChanged": 1118,
+      "cards": 21455,
+      "productsAdded": 715,
+      "productsChanged": 1074,
       "productsRemoved": 50
     },
     "Pokémon prices (asia)": {
       "ok": true,
-      "cards": 13382,
+      "cards": 13444,
       "productsAdded": 106,
       "productsChanged": 179,
       "productsRemoved": 0
