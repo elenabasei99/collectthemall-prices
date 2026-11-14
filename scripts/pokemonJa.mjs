@@ -298,5 +298,5 @@ export async function downloadJapanese() {
   if (!usd) throw new Error('ECB: no USD rate');
   // a sane rate only: a wrong one would skew every price converted from dollars
   if (!(Number(usd[1]) > 0.5 && Number(usd[1]) < 2)) throw new Error(`ECB: unlikely USD rate ${usd[1]}`);
-  return { groups: groups.filter((g) => g.products), tcgdexJa, tcgdexZhTw, eurPerUsd: 1 / Number(usd[1]) };
+  return { groups: groups.filter((g) => g.products), missing: groups.filter((g) => !g.products).map((g) => g.groupId), tcgdexJa, tcgdexZhTw, eurPerUsd: 1 / Number(usd[1]) };
 }

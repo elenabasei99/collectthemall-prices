@@ -394,6 +394,17 @@ async function main() {
     const downloaded = await downloadJapanese();
     jaGroups = downloaded.groups;
     const ja = buildJapanese({ ...downloaded, species, cm: { singles: pkSingles.products, nonsingles: pkSealed.products, guide: pkGuide.priceGuides } });
+    // Sets tcgcsv didn't give today (up to a tenth may fail): yesterday's cards of those sets, so they don't drop out
+    // of the catalogue (price, picture, search) for a day.
+    if (downloaded.missing.length) {
+      const miss = new Set(downloaded.missing);
+      let before = null;
+      try { before = JSON.parse(await readFile(join(OUT, 'pokemon', 'ja.json'), 'utf8')); } catch { /* first run */ }
+      const keptCards = (before?.cards ?? []).filter((r) => miss.has(r[1]));
+      ja.cards.push(...keptCards);
+      for (const id of miss) if (before?.sets?.[id] && !ja.sets[id]) ja.sets[id] = before.sets[id];
+      ja.report.keptFromYesterday = { sets: miss.size, cards: keptCards.length };
+    }
     if (ja.cards.length < 20000) throw new Error(`only ${ja.cards.length} Japanese cards`);
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
     await writeFile(join(OUT, 'pokemon', 'ja.json'), JSON.stringify({
@@ -403,7 +414,7 @@ async function main() {
     }));
     await writeFile(join(OUT, 'pokemon', 'tcgdex-dex.json'), JSON.stringify({ updated, columns: ['id', 'name', 'image'], ...ja.tcgdexDex }));
     console.log(`Japanese Pokémon: ${JSON.stringify(ja.report)}`);
-    done('Japanese Pokémon catalogue', { cards: ja.report.cards, cardmarket: ja.report.cardmarket, tcgplayerOnly: ja.report.tcgplayerOnly });
+    done('Japanese Pokémon catalogue', { cards: ja.report.cards, cardmarket: ja.report.cardmarket, tcgplayerOnly: ja.report.tcgplayerOnly, ...(ja.report.keptFromYesterday ? { keptFromYesterday: ja.report.keptFromYesterday } : {}) });
   } catch (err) {
     keptPart('Japanese Pokémon catalogue', err);
   }
@@ -442,8 +453,18 @@ async function main() {
       const { products, report } = name === 'en'
         ? matchProducts(list, pkSingles.products, { usd: tpUsd, eur })
         : checkJapanese(list, await jaRows(), pkSingles.products, species);
-      list = list.map((c) => ({ ...c, product: fixes[c.id]?.[0] ?? products.get(c.id) }));
-      const fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed?.length ?? 0 };
+      // Without TCGplayer's prices today (tcgcsv down), look-alike prints can't be told apart: English cards keep
+      // yesterday's product (chosen with them); only cards new today take today's match.
+      let keptProducts = 0;
+      const yesterday = name === 'en' && tpUsd.size === 0
+        ? await readFile(join(OUT, 'pokemon', 'tcgdex-en.json'), 'utf8').then((t) => JSON.parse(t).cards).catch(() => ({}))
+        : null;
+      list = list.map((c) => {
+        const before = yesterday?.[c.id]?.[0];
+        if (before != null && !fixes[c.id]) { keptProducts++; return { ...c, product: before }; }
+        return { ...c, product: fixes[c.id]?.[0] ?? products.get(c.id) };
+      });
+      const fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed?.length ?? 0, ...(keptProducts ? { keptProducts } : {}) };
       console.log(`TCGdex ${name}: Cardmarket products ${JSON.stringify(fixed)}`);
       const cards = priceCards(list, pkGuide.priceGuides);
       if (Object.keys(cards).length < (name === 'en' ? 15000 : 8000)) throw new Error(`only ${Object.keys(cards).length} ${name} cards`);
