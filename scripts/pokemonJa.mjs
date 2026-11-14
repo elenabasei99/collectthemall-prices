@@ -258,7 +258,7 @@ const UA = { 'User-Agent': 'collectthemall-prices (personal collection app)' };
 export async function getJson(url, tries = 3) {
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(url, { headers: UA });
+      const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -292,9 +292,11 @@ export async function downloadJapanese() {
   const [tcgdexJa, tcgdexZhTw, ecb] = await Promise.all([
     getJson('https://api.tcgdex.net/v2/ja/cards'),
     getJson('https://api.tcgdex.net/v2/zh-tw/cards'),
-    fetch('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml', { headers: UA }).then((r) => r.text()),
+    fetch('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml', { headers: UA, signal: AbortSignal.timeout(60_000) }).then((r) => r.text()),
   ]);
   const usd = /currency=['"]USD['"]\s+rate=['"]([\d.]+)['"]/.exec(ecb);
   if (!usd) throw new Error('ECB: no USD rate');
+  // a sane rate only: a wrong one would skew every price converted from dollars
+  if (!(Number(usd[1]) > 0.5 && Number(usd[1]) < 2)) throw new Error(`ECB: unlikely USD rate ${usd[1]}`);
   return { groups: groups.filter((g) => g.products), tcgdexJa, tcgdexZhTw, eurPerUsd: 1 / Number(usd[1]) };
 }

@@ -31,7 +31,7 @@ export function buildReleaseDates({ tcgdexSets = [], jaGroups = [], opGroups = [
 
 export async function downloadReleaseSources() {
   const [tcgdex, op] = await Promise.allSettled([
-    fetch('https://api.tcgdex.net/v2/graphql', { method: 'POST', headers: { 'content-type': 'application/json', 'User-Agent': 'collectthemall-prices (personal collection app)' }, body: JSON.stringify({ query: '{ sets { id releaseDate } }' }) })
+    fetch('https://api.tcgdex.net/v2/graphql', { method: 'POST', headers: { 'content-type': 'application/json', 'User-Agent': 'collectthemall-prices (personal collection app)' }, body: JSON.stringify({ query: '{ sets { id releaseDate } }' }), signal: AbortSignal.timeout(60_000) })
       .then((r) => r.json()).then((d) => { if (!Array.isArray(d?.data?.sets) || d.data.sets.length < 100) throw new Error('TCGdex sets'); return d.data.sets; }),
     getJson('https://tcgcsv.com/tcgplayer/68/groups').then((d) => { if (!Array.isArray(d.results) || d.results.length < 30) throw new Error('One Piece sets'); return d.results; }),
   ]);

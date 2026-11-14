@@ -20,7 +20,8 @@ async function load(path) {
   if (from) return JSON.parse(await readFile(join(from, path.split('/').pop()), 'utf8'));
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(`${CM}/${path}`, { headers: { 'User-Agent': 'collectthemall-prices (personal collection app)' } });
+      // a time limit, so a hanging source can't stall the whole run past the job's limit (and lose the day)
+      const res = await fetch(`${CM}/${path}`, { headers: { 'User-Agent': 'collectthemall-prices (personal collection app)' }, signal: AbortSignal.timeout(120_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -104,13 +105,15 @@ export function buildOnePiece(singles, nonsingles, guide, index = indexOnePiece(
     const prefix = key.split('|')[0];
     for (const [code, ids] of byExp.get(exp)) if (code.startsWith(`${prefix}-`)) add(code, lang, [...ids]);
   }
-  // Promos (P-001…) are spread over many event expansions: every product with the code, in release order.
+  // Promos (P-001…) are spread over many event expansions: every product with the code, in release order, the English
+  // and the Japanese prints apart (as the expansions tell them).
   const promos = new Map();
   for (const [exp, codes] of byExp) {
-    if (kindOf(exp) === 'skip') continue;
-    for (const [code, ids] of codes) if (code.startsWith('P-')) promos.set(code, [...(promos.get(code) ?? []), ...ids]);
+    const kind = kindOf(exp);
+    if (kind === 'skip') continue;
+    for (const [code, ids] of codes) if (code.startsWith('P-')) promos.set(`${code}|${kind}`, [...(promos.get(`${code}|${kind}`) ?? []), ...ids]);
   }
-  for (const [code, ids] of promos) add(code, 'en', ids);
+  for (const [key, ids] of promos) { const [code, lang] = key.split('|'); add(code, lang, ids); }
   return cards;
 }
 
@@ -159,7 +162,9 @@ export function orderVersions(cards, optcgSets, previous = {}, byId = {}) {
       // only the normal card listed (starter decks): it is the cheapest product; the others are special prints
       const cheapest = [...rows].sort((a, b) => (eur(a) ?? Infinity) - (eur(b) ?? Infinity) || a[0] - b[0])[0];
       next = [cheapest, ...rows.filter((r) => r !== cheapest)];
-    } else if (vs.length >= 2 && vs.length <= rows.length && vs.every((x, i) => x.v === i && x.usd != null)) {
+    } else if (vs.length >= 2 && vs.length <= rows.length && vs.every((x, i) => (i === 0 || x.v > vs[i - 1].v) && x.usd != null)
+      && vs[vs.length - 1].v + 1 <= rows.length) {
+      // (version numbers may skip one, e.g. _p0, _p1, _p3: the skipped places take the products no version claims)
       const byUsd = [...vs].sort((a, b) => a.usd - b.usd || a.v - b.v);
       const byEur = [...rows].sort((a, b) => (eur(a) ?? Infinity) - (eur(b) ?? Infinity) || a[0] - b[0]);
       // the cheapest-to-dearest pairing that keeps prices closest (one product each; all of them when the counts match)
@@ -167,10 +172,12 @@ export function orderVersions(cards, optcgSets, previous = {}, byId = {}) {
       const cost = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(Infinity));
       for (let j = 0; j <= m; j++) cost[0][j] = 0;
       for (let i = 1; i <= n; i++) for (let j = i; j <= m; j++) cost[i][j] = Math.min(cost[i][j - 1], cost[i - 1][j - 1] + gap(byEur[j - 1], byUsd[i - 1].usd));
-      next = new Array(n);
+      next = new Array(vs[vs.length - 1].v + 1);
       for (let i = n, j = m; i > 0; j--) if (cost[i][j] !== cost[i][j - 1]) { next[byUsd[i - 1].v] = byEur[j - 1]; i--; }
-      const used = new Set(next);
-      next.push(...rows.filter((r) => !used.has(r)));
+      const used = new Set(next.filter(Boolean));
+      const spare = rows.filter((r) => !used.has(r));
+      for (let k = 0; k < next.length; k++) if (!next[k]) next[k] = spare.shift();
+      next.push(...spare);
     } else if (!vs.length) {
       // no OPTCG today: yesterday's pairing, if it was of the same products
       const before = previous[code]?.[lang]?.map((r) => r[0]);
@@ -178,7 +185,8 @@ export function orderVersions(cards, optcgSets, previous = {}, byId = {}) {
       if (before?.length === ids.length && before.every((id) => ids.includes(id))) next = before.map((id) => rows.find((r) => r[0] === id));
     }
     if (next && vs.length) {
-      const left = next.slice(vs.length);
+      const claimed = new Set(vs.map((x) => next[x.v]));
+      const left = next.filter((r) => !claimed.has(r));
       for (const t of (twins.get(code) ?? []).sort((a, b) => a.usd - b.usd)) {
         const best = left.sort((a, b) => gap(a, t.usd) - gap(b, t.usd))[0];
         if (!best) break;
@@ -275,7 +283,7 @@ const OPTCG = 'https://optcgapi.com/api';
 async function getJson(url) {
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'collectthemall-prices (personal collection app)' } });
+      const res = await fetch(url, { headers: { 'User-Agent': 'collectthemall-prices (personal collection app)' }, signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -490,7 +498,8 @@ async function main() {
 
   // Weekly snapshot of trend prices (One Piece singles and all sealed), for price history.
   const day = updated.slice(0, 10);
-  if (new Date(day).getUTCDay() === 1 || process.argv.includes('--history')) {
+  // on the run's own Monday (Cardmarket's file of the day may still be Sunday's when the run starts)
+  if (new Date().getUTCDay() === 1 || process.argv.includes('--history')) {
     const lines = ['idProduct,trend'];
     const seen = new Set();
     const addLine = (r) => { if (r[1] != null && !seen.has(r[0])) { seen.add(r[0]); lines.push(`${r[0]},${r[1]}`); } };

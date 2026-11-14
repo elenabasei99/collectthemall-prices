@@ -182,3 +182,23 @@ test('One Piece expansions: "(Japanese)" decks are Japanese, mixed promo collect
   assert.equal(main.get('EB03|ja'), undefined);
   assert.equal(main.get('PRB01|en').exp, 4);
 });
+
+test('One Piece versions: a skipped version number still pairs (_p0, _p1, _p3), promos keep their prints apart', () => {
+  const row = (id, eur) => [id, eur, eur, eur, eur, eur];
+  const optcg = { 'OP-09': [
+    { card_set_id: 'OP09-051', card_image_id: 'OP09-051', market_price: 0.2, card_name: 'A' },
+    { card_set_id: 'OP09-051', card_image_id: 'OP09-051_p1', market_price: 5, card_name: 'A (Alternate Art)' },
+    { card_set_id: 'OP09-051', card_image_id: 'OP09-051_p3', market_price: 400, card_name: 'A (Manga)' },
+  ] };
+  const cards = { 'OP09-051': { en: [row(3, 350), row(1, 0.1), row(4, 1.5), row(2, 4)] } };
+  orderVersions(cards, optcg, {});
+  // _p0 the cheapest, _p1 ~5, _p3 the dearest; the place of the missing _p2 takes the product no version claims
+  assert.deepEqual(cards['OP09-051'].en.map((r) => r[0]), [1, 2, 4, 3]);
+
+  const p = (idProduct, code, idExpansion) => ({ idProduct, name: `X (${code})`, idExpansion });
+  const singles = [p(10, 'P-001', 1), p(11, 'P-001', 2), p(12, 'P-001', 1)];
+  const nonsingles = [{ idExpansion: 1, name: 'Promotion Pack' }, { idExpansion: 2, name: 'Promotion Pack (Non-English)' }];
+  const built = buildOnePiece(singles, nonsingles, []);
+  assert.deepEqual(built['P-001'].en.map((r) => r[0]), [10, 12]);
+  assert.deepEqual(built['P-001'].ja.map((r) => r[0]), [11]);
+});
