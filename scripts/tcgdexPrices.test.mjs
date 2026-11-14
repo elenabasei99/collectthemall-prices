@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCardFile, priceCards } from './tcgdexPrices.mjs';
+import { parseCardFile, priceCards, tcgplayerVersions, versionsOfCode, withVersions } from './tcgdexPrices.mjs';
 
 test('newer card files: the first unstamped version names the product; stamped versions are left out', () => {
   const text = `const card: Card = {
@@ -25,4 +25,17 @@ test('prices from the Cardmarket guide, with the versions', () => {
   const cards = [{ id: 'sv03.5-001', product: 733596, versions: ['normal', 'reverse'] }, { id: 'x-1', product: null, versions: [] }];
   const out = priceCards(cards, [{ idProduct: 733596, trend: 0.25, avg30: 0.2, avg: 0.22, 'trend-holo': 0.9, 'avg30-holo': 0.8, avg7: 0.3, avg1: 0.31 }]);
   assert.deepEqual(out, { 'sv03.5-001': [733596, 0.25, 0.2, 0.22, 0.9, 0.8, 'nr', 0.3, 0.31, null] });
+});
+
+test('versions TCGdex misses come from TCGplayer: all of them for a card without any, else only the reverse holo', () => {
+  // Cosmic Eclipse Kirlia: TCGdex lists nothing; TCGplayer sells it normal and reverse
+  assert.deepEqual(withVersions([], tcgplayerVersions(['Normal', 'Reverse Holofoil'])), ['normal', 'reverse']);
+  // a GX: holo only
+  assert.deepEqual(withVersions([], tcgplayerVersions(['Holofoil'])), ['holo']);
+  // EX era: TCGdex has the holo, TCGplayer the reverse too; a 1st edition TCGdex lists stays
+  assert.deepEqual(withVersions(['holo'], tcgplayerVersions(['Holofoil', 'Reverse Holofoil', 'Normal'])), ['holo', 'reverse']);
+  assert.deepEqual(withVersions(['firstEdition', 'normal'], tcgplayerVersions(['Unlimited'])), ['normal', 'firstEdition']);
+  // nothing from TCGplayer (card not paired): TCGdex's as they are; yesterday's row read back
+  assert.deepEqual(withVersions(['normal'], tcgplayerVersions(undefined)), ['normal']);
+  assert.deepEqual(versionsOfCode('nr'), ['normal', 'reverse']);
 });

@@ -12,7 +12,8 @@ const sameName = (a, b) => { const x = squash(a), y = squash(b); return !!x && !
  * tcgdex: TCGdex's English card list ({ id, localId, name, image? }); groups: TCGplayer sets with their products.
  * Each TCGdex set with cards missing a picture is paired with the TCGplayer set sharing most of its cards (same number
  * and name); those cards then take the picture of the TCGplayer card with their number and name.
- * Returns { "<TCGdex id>": TCGplayer productId } and a report.
+ * Returns { "<TCGdex id>": TCGplayer productId } for the cards missing a picture (`images`), the same for every card
+ * of a paired set (`paired`: its versions are read from TCGplayer's prices) and a report.
  */
 export function matchEnglishImages(tcgdex, groups, setNames = {}) {
   const bySet = new Map();
@@ -40,11 +41,11 @@ export function matchEnglishImages(tcgdex, groups, setNames = {}) {
     return [...list].sort((a, b) => [...words(b.full)].filter((x) => w.has(x)).length - [...words(a.full)].filter((x) => w.has(x)).length)[0];
   };
   const out = {};
+  const paired = {};
   const report = { missing: 0, found: 0, sets: 0, setsPaired: 0, unpaired: [] };
   for (const [set, cards] of bySet) {
     const missing = cards.filter((c) => !c.image);
-    if (!missing.length) continue;
-    report.sets++; report.missing += missing.length;
+    if (missing.length) { report.sets++; report.missing += missing.length; }
     // which TCGplayer set holds most of this set's cards
     const votes = new Map();
     for (const c of cards) {
@@ -57,10 +58,11 @@ export function matchEnglishImages(tcgdex, groups, setNames = {}) {
     }
     const best = [...votes].sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] >= Math.max(2, cards.length * 0.5)) {
-      report.setsPaired++;
-      for (const c of missing) {
+      if (missing.length) report.setsPaired++;
+      for (const c of cards) {
         const t = closest((byNumber.get(num(c.localId)) ?? []).filter((x) => x.groupId === best[0] && sameName(x.name, c.name)), setNames[set]);
-        if (t) { out[c.id] = t.productId; report.found++; }
+        if (t) paired[c.id] = t.productId;
+        if (t && !c.image) { out[c.id] = t.productId; report.found++; }
       }
       continue;
     }
@@ -74,15 +76,17 @@ export function matchEnglishImages(tcgdex, groups, setNames = {}) {
       let n = 0; for (const k of names.keys()) if (g.cardsByName.has(k)) n++;
       if (n >= cards.length * 0.7 && (!byName || n > byName.n)) byName = { g, n };
     }
-    if (!byName) { report.unpaired.push(`${set} (${missing.length})`); continue; }
-    report.setsPaired++;
-    for (const c of missing) {
+    if (!byName) { if (missing.length) report.unpaired.push(`${set} (${missing.length})`); continue; }
+    if (missing.length) report.setsPaired++;
+    for (const c of cards) {
       const k = squash(c.name);
       const list = byName.g.cardsByName.get(k);
-      if (names.get(k) === 1 && list?.length === 1) { out[c.id] = list[0].productId; report.found++; }
+      if (names.get(k) !== 1 || list?.length !== 1) continue;
+      paired[c.id] = list[0].productId;
+      if (!c.image) { out[c.id] = list[0].productId; report.found++; }
     }
   }
-  return { images: out, report };
+  return { images: out, paired, report };
 }
 
 /** TCGplayer's English catalogue (category 3 on tcgcsv.com) with its prices, and TCGdex's English cards and sets. */

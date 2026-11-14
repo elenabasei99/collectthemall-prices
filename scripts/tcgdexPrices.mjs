@@ -75,6 +75,27 @@ export async function readDataFolder(root) {
 const CODE = { normal: 'n', holo: 'h', reverse: 'r', firstEdition: 'f' };
 
 /** id → [idProduct, trend, avg30, avg, trendHolo, avg30Holo, versions ("nhrf"), avg7, avg1, avg7Holo] for cards with a product or versions. */
+const ORDER = ['normal', 'holo', 'reverse', 'firstEdition'];
+const TP_VERSION = { Normal: 'normal', Unlimited: 'normal', Holofoil: 'holo', 'Unlimited Holofoil': 'holo', 'Reverse Holofoil': 'reverse', '1st Edition': 'firstEdition', '1st Edition Holofoil': 'firstEdition' };
+
+/** TCGplayer's price lines for a card ("Normal", "Reverse Holofoil"…) as version names. */
+export const tcgplayerVersions = (lines) => [...new Set((lines ?? []).map((s) => TP_VERSION[s]).filter(Boolean))];
+
+/**
+ * TCGdex lists no versions for whole eras (Sun & Moon, XY…) and no reverse holo for the EX era: another source's
+ * versions (`from`: TCGplayer's) fill them in. A card without versions takes them all; one with versions only gains
+ * the reverse holo (nothing TCGdex lists is taken away).
+ */
+export function withVersions(versions, from) {
+  if (!from.length) return versions;
+  const out = new Set(versions.length ? versions : from);
+  if (from.includes('reverse')) out.add('reverse');
+  return ORDER.filter((v) => out.has(v));
+}
+
+/** A price row's versions ("nr") as names. */
+export const versionsOfCode = (code) => [...(code ?? '')].map((c) => ORDER.find((v) => CODE[v] === c)).filter(Boolean);
+
 export function priceCards(cards, guide) {
   const g = new Map(guide.map((x) => [x.idProduct, x]));
   const out = {};

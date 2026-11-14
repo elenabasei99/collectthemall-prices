@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { buildJapanese, downloadJapanese } from './pokemonJa.mjs';
 import { downloadEnglish, matchEnglishImages } from './pokemonImages.mjs';
 import { buildReleaseDates, downloadReleaseSources } from './releaseDates.mjs';
-import { cloneTcgdex, priceCards, readDataFolder } from './tcgdexPrices.mjs';
+import { cloneTcgdex, priceCards, readDataFolder, tcgplayerVersions, versionsOfCode, withVersions } from './tcgdexPrices.mjs';
 import { checkJapanese, matchProducts } from './cardmarketMatch.mjs';
 import { expansionLabels, onePieceExtras, pokemonExtras } from './cardmarketExtras.mjs';
 import { tmpdir } from 'node:os';
@@ -422,13 +422,17 @@ async function main() {
 
   // Pictures for English (and so Italian) TCGdex cards without one, from TCGplayer. Kept from yesterday on failure.
   const tpUsd = new Map(); // TCGplayer's English prices (USD, not reverse holo): they tell same-name prints apart below
+  const tpVersions = new Map(); // TCGdex id → TCGplayer's price lines for that card ("Normal", "Reverse Holofoil"…)
   try {
     const en = await downloadEnglish();
     for (const g of en.groups) for (const p of g.prices ?? []) {
       const v = p.marketPrice ?? p.midPrice;
       if (v > 0 && !/reverse/i.test(p.subTypeName)) tpUsd.set(p.productId, Math.min(tpUsd.get(p.productId) ?? Infinity, v));
     }
-    const { images, report } = matchEnglishImages(en.cards, en.groups, en.setNames);
+    const { images, paired, report } = matchEnglishImages(en.cards, en.groups, en.setNames);
+    const lines = new Map();
+    for (const g of en.groups) for (const p of g.prices ?? []) lines.set(p.productId, [...(lines.get(p.productId) ?? []), p.subTypeName]);
+    for (const [id, product] of Object.entries(paired)) if (lines.has(product)) tpVersions.set(id, lines.get(product));
     if (Object.keys(images).length < 500) throw new Error(`only ${Object.keys(images).length} pictures`);
     await mkdir(join(OUT, 'pokemon'), { recursive: true });
     await writeFile(join(OUT, 'pokemon', 'en-images.json'), JSON.stringify({ updated, base: 'https://tcgplayer-cdn.tcgplayer.com/product/', images }));
@@ -461,9 +465,12 @@ async function main() {
         ? await readFile(join(OUT, 'pokemon', 'tcgdex-en.json'), 'utf8').then((t) => JSON.parse(t).cards).catch(() => ({}))
         : null;
       list = list.map((c) => {
+        // versions TCGdex misses, from TCGplayer (without it today: yesterday's, which had them)
+        const versions = name !== 'en' ? c.versions
+          : withVersions(c.versions, tpVersions.size ? tcgplayerVersions(tpVersions.get(c.id)) : versionsOfCode(yesterday?.[c.id]?.[6]));
         const before = yesterday?.[c.id]?.[0];
-        if (before != null && !fixes[c.id]) { keptProducts++; return { ...c, product: before }; }
-        return { ...c, product: fixes[c.id]?.[0] ?? products.get(c.id) };
+        if (before != null && !fixes[c.id]) { keptProducts++; return { ...c, versions, product: before }; }
+        return { ...c, versions, product: fixes[c.id]?.[0] ?? products.get(c.id) };
       });
       const fixed = { productsAdded: report.added.length, productsChanged: report.changed.length, productsRemoved: report.removed?.length ?? 0, ...(keptProducts ? { keptProducts } : {}) };
       console.log(`TCGdex ${name}: Cardmarket products ${JSON.stringify(fixed)}`);
