@@ -32,7 +32,7 @@ jobs:
       # yesterday's files (kept when a source fails), so they come back first.
       - name: Yesterday's prices
         run: |
-          if git fetch -q --depth=1 origin data; then git checkout FETCH_HEAD -- data; else echo "No data branch yet: main's data/ is yesterday's"; fi
+          if git fetch -q --depth=1 origin data; then git checkout FETCH_HEAD -- data; else echo "No data branch yet: every part is built afresh"; fi
       - name: Build price files
         run: node scripts/build.mjs
       - name: Publish
