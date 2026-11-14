@@ -160,3 +160,25 @@ test('One Piece expansions: a set\'s own wins over a promo expansion holding mor
   assert.equal(main.get('ST01|ja').exp, 11);
   assert.equal(main.get('ST02|en').exp, 13);
 });
+
+test('One Piece expansions: "(Japanese)" decks are Japanese, mixed promo collections stand for no set, premium boosters still do', () => {
+  const p = (idProduct, code, idExpansion) => ({ idProduct, name: `X (${code})`, idExpansion });
+  let id = 1;
+  const many = (exp, codes) => codes.flatMap(([code, n]) => Array.from({ length: n }, (_, i) => p(id++, `${code}-${String(i + 1).padStart(3, '0')}`, exp)));
+  const singles = [
+    // the English and the Japanese Three Brothers deck
+    ...many(1, [['ST13', 4]]), ...many(2, [['ST13', 4]]),
+    // a Chinese New Year promo collection: a little of many sets (none a quarter of it)
+    ...many(3, [['OP01', 3], ['OP02', 3], ['OP03', 3], ['OP04', 3], ['ST29', 2], ['EB03', 2]]),
+    // The Best: reprints of many sets, one card of its own code
+    ...many(4, [['OP05', 3], ['OP06', 3], ['OP07', 3], ['OP08', 3], ['PRB01', 1]]),
+  ];
+  const nonsingles = [{ idExpansion: 1, name: 'Ultra Deck: The Three Brothers' }, { idExpansion: 2, name: 'Ultimate Deck: The Three Brothers (Japanese)' },
+    { idExpansion: 3, name: 'Chinese New Year Red Envelope (Non-English)' }, { idExpansion: 4, name: 'The Best Booster Box' }];
+  const { main } = indexOnePiece(singles, nonsingles);
+  assert.equal(main.get('ST13|en').exp, 1);
+  assert.equal(main.get('ST13|ja').exp, 2);
+  assert.equal(main.get('ST29|ja'), undefined);
+  assert.equal(main.get('EB03|ja'), undefined);
+  assert.equal(main.get('PRB01|en').exp, 4);
+});

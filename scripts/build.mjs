@@ -53,7 +53,8 @@ export function indexOnePiece(singles, nonsingles) {
     if (names.some((n) => /pre-errata/i.test(n))) return 'skip';
     // English prints sold only in Asia: a market of their own, not the set's English expansion
     if (names.length && names.every((n) => /asia region legal/i.test(n))) return 'skip';
-    if (names.some((n) => /non-english/i.test(n))) return 'ja';
+    // Japanese prints: "(Non-English)" boxes, or decks named "(Japanese)" (Ultimate Deck: The Three Brothers (Japanese))
+    if (names.some((n) => /non-english|\(japanese\)/i.test(n))) return 'ja';
     return 'en';
   };
 
@@ -76,8 +77,12 @@ export function indexOnePiece(singles, nonsingles) {
     const prefixes = new Map();
     let total = 0;
     for (const [code, ids] of codes) { prefixes.set(code.split('-')[0], (prefixes.get(code.split('-')[0]) ?? 0) + ids.length); total += ids.length; }
+    // A collection mixing many sets, none a quarter of it (Chinese New Year Red Envelope: 44 codes, 43 cards at most),
+    // stands for none of them; premium boosters are such mixes by nature (The Best: few cards of their own PRB01 code).
+    const mixed = Math.max(0, ...[...prefixes].filter(([p]) => p !== 'P').map(([, n]) => n)) < total / 4; // promo cards (P-…) are no set
     for (const [prefix, n] of prefixes) {
       if (prefix === 'P') continue;
+      if (!prefix.startsWith('PRB') && (mixed || (n <= 2 && n / total < 0.05))) continue; // …or holds a stray card or two of it
       const key = `${prefix}|${kind}`, score = (n * n) / total;
       const cur = main.get(key);
       if (!cur || score > cur.score) main.set(key, { exp, n, score });
@@ -289,6 +294,12 @@ async function loadOptcgSets() {
     try { const list = await getJson(`${OPTCG}/${kind}/${encodeURIComponent(id)}/`); out[id] = Array.isArray(list) ? list : null; }
     catch { out[id] = null; }
   }
+  // decks with cards that the deck list leaves out (ST-29 Egghead), straight from the starter cards
+  try {
+    const cards = await getJson(`${OPTCG}/allSTCards/`);
+    for (const c of Array.isArray(cards) ? cards : []) if (c?.set_id && !(c.set_id in out)) (out[`~${c.set_id}`] ??= []).push(c);
+    for (const key of Object.keys(out).filter((k) => k.startsWith('~'))) { out[key.slice(1)] = out[key]; delete out[key]; }
+  } catch { /* the deck list's decks are enough */ }
   return out;
 }
 
