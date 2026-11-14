@@ -530,6 +530,13 @@ async function main() {
     for (const r of sealed) if (r[4] != null) lines.push(`${r[0]},${r[4]}`);
     await writeFile(join(OUT, 'history', `${day}.csv`), lines.join('\n') + '\n');
   }
+  // Cardmarket's price guide itself may be old (not published for a day): the prices are then not today's either.
+  // (Its newest is often over a day old already, published late: only a guide over 50 hours old counts as missed.)
+  for (const [game, guide] of [['One Piece', opGuide], ['Pokémon', pkGuide]]) {
+    const at = Date.parse(guide.createdAt ?? '');
+    if (Number.isFinite(at) && Date.now() - at > 50 * 3600_000) keptPart(`Cardmarket price guide (${game})`, `the newest is of ${guide.createdAt}`);
+    else done(`Cardmarket price guide (${game})`, { of: guide.createdAt ?? null });
+  }
   await writeFile(join(OUT, 'meta.json'), JSON.stringify({
     updated, built: new Date().toISOString(), onepieceCards: Object.keys(onepiece).length, reprintVersions: Object.keys(byId).length,
     sealedProducts: sealed.length, allPartsUpdated: Object.values(parts).every((x) => x.ok), parts,
