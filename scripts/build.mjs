@@ -228,7 +228,8 @@ export function appIds(cards) {
   const used = new Set();
   return sorted.map((c, i) => {
     let id = c.card_image_id;
-    if ((count.get(id) ?? 0) > 1) id = `${c.card_image_id}~${versionSlug(c.card_name) || i}`;
+    // (a version with no name of its own is "base", as in the app: never its place in the list)
+    if ((count.get(id) ?? 0) > 1) id = `${c.card_image_id}~${versionSlug(c.card_name) || 'base'}`;
     while (used.has(id)) id = `${id}-${i}`;
     used.add(id);
     return { id, card: c };

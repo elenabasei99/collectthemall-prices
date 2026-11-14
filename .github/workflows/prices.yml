@@ -27,15 +27,20 @@ jobs:
           node-version: 24
       - name: Test
         run: node --test scripts/build.test.mjs scripts/pokemonJa.test.mjs scripts/pokemonImages.test.mjs scripts/releaseDates.test.mjs scripts/tcgdexPrices.test.mjs scripts/cardmarketExtras.test.mjs scripts/cardmarketMatch.test.mjs
+      # The price files live on the "data" branch, one commit replaced at every run (only the latest prices are kept:
+      # committing ~6 MB of them on main 2-4 times a day made the repository grow ~40 MB in 9 days). The build reads
+      # yesterday's files (kept when a source fails), so they come back first.
+      - name: Yesterday's prices
+        run: |
+          if git fetch -q --depth=1 origin data; then git checkout FETCH_HEAD -- data; else echo "No data branch yet: main's data/ is yesterday's"; fi
       - name: Build price files
         run: node scripts/build.mjs
       - name: Publish
         run: |
           git config user.name "collectthemall-prices bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # a commit holding only data/, with no parent: the data branch is replaced, not added to
+          export GIT_INDEX_FILE="$RUNNER_TEMP/prices-index"
           git add data
-          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
-          git commit -m "Prices of $(date -u +%F)"
-          # someone may have pushed during the run: take their commits first (data/ is only written here), then push
-          for i in 1 2 3; do git pull --rebase -q && git push && exit 0; sleep 10; done
-          exit 1
+          commit=$(git commit-tree "$(git write-tree)" -m "Prices of $(date -u +%F)")
+          git push -f origin "$commit:refs/heads/data"
