@@ -1,0 +1,64 @@
+{
+  "updated": "2026-11-20T02:44:05+0100",
+  "built": "2026-11-21T09:47:37.193Z",
+  "onepieceCards": 3018,
+  "reprintVersions": 890,
+  "sealedProducts": 3884,
+  "allPartsUpdated": true,
+  "parts": {
+    "One Piece reprints": {
+      "ok": true,
+      "versions": 1526,
+      "sets": 59,
+      "unmatchedCodes": 17
+    },
+    "One Piece special versions": {
+      "ok": true,
+      "versions": 3867,
+      "codes": 2044
+    },
+    "Japanese Pokémon catalogue": {
+      "ok": true,
+      "cards": 28038,
+      "cardmarket": 23063,
+      "tcgplayerOnly": 3722
+    },
+    "English pictures": {
+      "ok": true,
+      "found": 1573,
+      "missing": 1781
+    },
+    "Pokémon prices (en)": {
+      "ok": true,
+      "cards": 21530,
+      "productsAdded": 719,
+      "productsChanged": 1069,
+      "productsRemoved": 50
+    },
+    "Pokémon prices (asia)": {
+      "ok": true,
+      "cards": 13587,
+      "productsAdded": 103,
+      "productsChanged": 179,
+      "productsRemoved": 0
+    },
+    "Pokémon cards on Cardmarket only": {
+      "ok": true,
+      "cards": 23120
+    },
+    "Release days": {
+      "ok": true,
+      "pokemon": 221,
+      "japanese": 416,
+      "onepiece": 67
+    },
+    "Cardmarket price guide (One Piece)": {
+      "ok": true,
+      "of": "2026-11-20T02:44:05+0100"
+    },
+    "Cardmarket price guide (Pokémon)": {
+      "ok": true,
+      "of": "2026-11-20T02:43:56+0100"
+    }
+  }
+}
